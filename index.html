@@ -188,7 +188,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v3.1</span></h1>
+    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v2.3</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -399,10 +399,11 @@ window.createCurrentMonth = async (sourceYm) => {
       const snap = await get(ref(db, `${ROOT}/${sourceYm}`));
       const src = snap.exists() ? snap.val() : {};
       Object.entries(src).forEach(([id, item]) => {
-        updates[id] = {
-          ...item,
-          amount: item.type === 'fixed' ? (item.amount || 0) : 0
-        };
+        if(item.type === 'fixed'){
+          updates[id] = { ...item, amount: item.amount || 0 };
+        } else if(item.recurring !== false){
+          updates[id] = { ...item, amount: 0 };
+        }
       });
     }
     if(Object.keys(updates).length === 0){
@@ -573,6 +574,18 @@ function buildItemRow(item){
       updateField(item.id, 'type', newType);
     };
     row.appendChild(typeChip);
+  }
+
+  if(item.type !== 'fixed'){
+    const isRecurring = item.recurring !== false;
+    const recChip = document.createElement('button');
+    recChip.className = 'type-chip ' + (isRecurring ? 'fixed' : 'variable');
+    recChip.textContent = isRecurring ? '반복' : '1회성';
+    recChip.title = '다음 달에도 이 항목이 자동으로 나타나게 할지(반복) / 이번 달만 나타나고 사라지게 할지(1회성)';
+    recChip.onclick = () => {
+      updateField(item.id, 'recurring', !isRecurring);
+    };
+    row.appendChild(recChip);
   }
 
   const amountInput = document.createElement('input');

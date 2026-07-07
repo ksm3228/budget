@@ -67,9 +67,9 @@
   }
   .month-nav .label{ font-size:17px; font-weight:700; min-width:110px; text-align:center; }
 
-  .tabs-row{ display:flex; gap:8px; margin-bottom:8px; }
+  .tabs-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
   .tab-btn{
-    flex:1; border:2px solid transparent; background:var(--card); border-radius:12px;
+    flex:1 1 45%; min-width:140px; border:2px solid transparent; background:var(--card); border-radius:12px;
     padding:12px 10px; cursor:pointer; text-align:left; box-shadow:0 1px 4px rgba(0,0,0,0.05);
   }
   .tab-btn .tn{ font-size:12.5px; color:var(--sub); font-weight:600; margin-bottom:3px; }
@@ -188,7 +188,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v2.1</span></h1>
+    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v3.1</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -214,6 +214,10 @@
       <button class="tab-btn" id="tab-variable" onclick="setTab('variable')">
         <div class="tn">변동지출</div>
         <div class="tv" id="tab-variable-total">0원</div>
+      </button>
+      <button class="tab-btn" id="tab-expected" onclick="setTab('expected')">
+        <div class="tn">향후예상수입</div>
+        <div class="tv" id="tab-expected-total">0원</div>
       </button>
     </div>
     <div class="grand-row">
@@ -418,19 +422,22 @@ function renderMonth(){
 
   const allEntries = Object.entries(currentData);
 
-  let fixedSum=0, variableSum=0, incomeSum=0;
+  let fixedSum=0, variableSum=0, incomeSum=0, expectedSum=0;
   allEntries.forEach(([id, item]) => {
     if(item.type === 'variable') variableSum += Number(item.amount)||0;
     else if(item.type === 'income') incomeSum += Number(item.amount)||0;
+    else if(item.type === 'expected') expectedSum += Number(item.amount)||0;
     else fixedSum += Number(item.amount)||0;
   });
   document.getElementById('tab-income-total').textContent = won(incomeSum);
   document.getElementById('tab-fixed-total').textContent = won(fixedSum);
   document.getElementById('tab-variable-total').textContent = won(variableSum);
+  document.getElementById('tab-expected-total').textContent = won(expectedSum);
   document.getElementById('grand-total').textContent = won(fixedSum+variableSum);
   document.getElementById('tab-income').classList.toggle('active', activeTab==='income');
   document.getElementById('tab-fixed').classList.toggle('active', activeTab==='fixed');
   document.getElementById('tab-variable').classList.toggle('active', activeTab==='variable');
+  document.getElementById('tab-expected').classList.toggle('active', activeTab==='expected');
 
   const entries = allEntries.filter(([id,item]) => (item.type||'fixed') === activeTab);
   const categories = {};
@@ -456,7 +463,7 @@ function renderMonth(){
   if(catNames.length === 0){
     const p = document.createElement('div');
     p.style.cssText = 'text-align:center;color:var(--sub);font-size:13px;padding:20px 0;';
-    p.textContent = activeTab === 'income' ? '수입 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : (activeTab === 'fixed' ? '고정지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : '변동지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.');
+    p.textContent = activeTab === 'income' ? '수입 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : activeTab === 'expected' ? '향후예상수입 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : (activeTab === 'fixed' ? '고정지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : '변동지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.');
     container.appendChild(p);
   }
 
@@ -556,7 +563,7 @@ function buildItemRow(item){
 
   row.appendChild(main);
 
-  if(item.type !== 'income'){
+  if(item.type !== 'income' && item.type !== 'expected'){
     const typeChip = document.createElement('button');
     typeChip.className = 'type-chip ' + (item.type === 'variable' ? 'variable' : 'fixed');
     typeChip.textContent = item.type === 'variable' ? '변동' : '고정';

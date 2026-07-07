@@ -188,7 +188,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v2.3</span></h1>
+    <h1>가계부 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v4.1</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -399,7 +399,8 @@ window.createCurrentMonth = async (sourceYm) => {
       const snap = await get(ref(db, `${ROOT}/${sourceYm}`));
       const src = snap.exists() ? snap.val() : {};
       Object.entries(src).forEach(([id, item]) => {
-        if(item.type === 'fixed'){
+        if(item.type === 'fixed' || item.type === 'expected'){
+          if(item.type === 'expected' && item.recurring === false) return;
           updates[id] = { ...item, amount: item.amount || 0 };
         } else if(item.recurring !== false){
           updates[id] = { ...item, amount: 0 };

@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>가계부</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  :root{
+    --bg:#F6F5F1;
+    --card:#FFFFFF;
+    --ink:#2B2A28;
+    --sub:#8A8680;
+    --line:#E7E4DD;
+    --accent:#3D6B4F;
+    --accent-soft:#E7F0E9;
+    --warn:#C4622D;
+    --warn-soft:#FBE9DF;
+    --danger:#C0392B;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  #login-screen{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:24px;
+    padding:20px;
+    text-align:center;
+  }
+  #login-screen h1{ font-size:28px; margin:0; letter-spacing:-0.5px; }
+  #login-screen p{ color:var(--sub); margin:0; font-size:14px; }
+  .g-btn{
+    display:flex; align-items:center; gap:10px;
+    background:#fff; border:1px solid var(--line); border-radius:10px;
+    padding:12px 20px; font-size:15px; font-weight:600; cursor:pointer;
+    box-shadow:0 1px 3px rgba(0,0,0,0.06);
+  }
+  .g-btn:hover{ background:#fafafa; }
+  #app-screen{ display:none; max-width:720px; margin:0 auto; padding:16px 14px 80px; }
+  header.top{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 2px 18px;
+  }
+  header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
+  .user-chip{ display:flex; align-items:center; gap:8px; }
+  .user-chip img{ width:28px; height:28px; border-radius:50%; }
+  .user-chip button{
+    border:none; background:none; color:var(--sub); font-size:12px; cursor:pointer; text-decoration:underline;
+  }
+  .month-nav{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+    background:var(--card); border-radius:14px; padding:12px; margin-bottom:16px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+  }
+  .month-nav button.arrow{
+    border:none; background:var(--accent-soft); color:var(--accent); width:34px; height:34px;
+    border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .month-nav .label{ font-size:17px; font-weight:700; min-width:110px; text-align:center; }
+  .summary-bar{
+    display:flex; gap:8px; margin-bottom:18px;
+  }
+  .summary-card{
+    flex:1; background:var(--card); border-radius:12px; padding:12px 14px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+  }
+  .summary-card .t{ font-size:11px; color:var(--sub); margin-bottom:4px; }
+  .summary-card .v{ font-size:16px; font-weight:800; letter-spacing:-0.3px; }
+  .empty-state{
+    background:var(--card); border-radius:14px; padding:40px 20px; text-align:center;
+    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+  }
+  .empty-state p{ color:var(--sub); font-size:14px; margin-bottom:18px; }
+  .primary-btn{
+    background:var(--accent); color:#fff; border:none; border-radius:10px;
+    padding:11px 18px; font-size:14px; font-weight:700; cursor:pointer;
+  }
+  .ghost-btn{
+    background:none; border:1px dashed var(--line); color:var(--sub); border-radius:10px;
+    padding:9px 14px; font-size:13px; cursor:pointer; width:100%;
+  }
+  .category-block{
+    background:var(--card); border-radius:14px; margin-bottom:14px; overflow:hidden;
+    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+  }
+  .category-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; border-left:6px solid var(--cat-color, #ccc);
+  }
+  .category-head .name{ font-weight:800; font-size:15px; }
+  .category-head .total{ font-weight:800; font-size:14px; color:var(--ink); }
+  .item-row{
+    display:flex; align-items:center; gap:8px; padding:9px 14px;
+    border-top:1px solid var(--line);
+  }
+  .item-row .main{ flex:1; min-width:0; }
+  .item-row input.name-input{
+    border:none; background:none; font-size:14px; font-weight:600; color:var(--ink);
+    width:100%; padding:2px 0;
+  }
+  .item-row input.note-input{
+    border:none; background:none; font-size:11.5px; color:var(--sub);
+    width:100%; padding:0;
+  }
+  .item-row input.name-input:focus, .item-row input.note-input:focus, .item-row input.amount-input:focus{
+    outline:none; border-bottom:1px solid var(--accent);
+  }
+  .item-row input.amount-input{
+    border:none; background:none; font-size:14px; font-weight:700; text-align:right;
+    width:92px; padding:2px 0;
+  }
+  .type-chip{
+    font-size:10.5px; font-weight:700; border-radius:20px; padding:3px 8px; cursor:pointer;
+    white-space:nowrap; border:none;
+  }
+  .type-chip.fixed{ background:var(--accent-soft); color:var(--accent); }
+  .type-chip.variable{ background:var(--warn-soft); color:var(--warn); }
+  .item-row.needs-input{ background:#FFF7F0; }
+  .needs-input .amount-input{ color:var(--danger); }
+  .del-btn{
+    border:none; background:none; color:var(--sub); font-size:16px; cursor:pointer; padding:2px 4px;
+  }
+  .add-item-row{ padding:10px 14px 14px; }
+  .add-form{
+    display:none; flex-direction:column; gap:8px; padding:12px 14px; border-top:1px solid var(--line); background:#FAFAF7;
+  }
+  .add-form.open{ display:flex; }
+  .add-form .row2{ display:flex; gap:8px; }
+  .add-form input, .add-form select{
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit;
+    background:#fff; flex:1;
+  }
+  .add-form .actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .add-form button{
+    border:none; border-radius:8px; padding:8px 14px; font-size:13px; font-weight:700; cursor:pointer;
+  }
+  .add-form .save{ background:var(--accent); color:#fff; }
+  .add-form .cancel{ background:none; color:var(--sub); }
+  .new-cat-fab{
+    display:block; width:100%; text-align:center; margin-top:6px;
+    background:none; border:1px dashed var(--line); border-radius:12px; padding:14px;
+    color:var(--sub); font-size:13px; cursor:pointer;
+  }
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px;
+    opacity:0; pointer-events:none; transition:opacity .25s;
+  }
+  .toast.show{ opacity:0.95; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>가계부</h1>
+  <p>구글 계정으로 로그인해주세요</p>
+  <button class="g-btn" onclick="signInWithGoogle()">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4c-7.7 0-14.3 4.4-17.7 10.7z"/><path fill="#4CAF50" d="M24 44c5.4 0 10.3-2.1 14-5.5l-6.5-5.3C29.4 34.9 26.8 36 24 36c-5.3 0-9.7-3.1-11.3-7.6l-6.6 5.1C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.5 5.3C41.5 36.1 44 30.5 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
+    Google로 로그인
+  </button>
+</div>
+
+<div id="app-screen">
+  <header class="top">
+    <h1>가계부</h1>
+    <div class="user-chip">
+      <img id="user-avatar" src="">
+      <button onclick="doSignOut()">로그아웃</button>
+    </div>
+  </header>
+
+  <div class="month-nav">
+    <button class="arrow" onclick="navMonth(-1)">‹</button>
+    <div class="label" id="month-label">-</div>
+    <button class="arrow" onclick="navMonth(1)">›</button>
+  </div>
+
+  <div class="summary-bar" id="summary-bar" style="display:none;">
+    <div class="summary-card"><div class="t">고정 지출</div><div class="v" id="sum-fixed">0원</div></div>
+    <div class="summary-card"><div class="t">변동 지출</div><div class="v" id="sum-variable">0원</div></div>
+    <div class="summary-card"><div class="t">총 합계</div><div class="v" id="sum-total">0원</div></div>
+  </div>
+
+  <div id="empty-state" class="empty-state" style="display:none;">
+    <p id="empty-text">이 달의 가계부가 아직 없어요.</p>
+    <button class="primary-btn" id="create-month-btn" onclick="createCurrentMonth()">이 달 만들기</button>
+  </div>
+
+  <div id="categories-container"></div>
+
+  <button class="new-cat-fab" id="new-cat-btn" style="display:none;" onclick="toggleNewCatForm()">+ 새 카테고리 추가</button>
+  <div class="add-form" id="new-cat-form">
+    <input type="text" id="nc-category" placeholder="카테고리명 (예: 통신비)">
+    <input type="text" id="nc-name" placeholder="항목명 (예: KT 인터넷)">
+    <input type="text" id="nc-note" placeholder="비고 (선택, 예: 15일)">
+    <div class="row2">
+      <select id="nc-type">
+        <option value="fixed">고정 (매달 유지)</option>
+        <option value="variable">변동 (매달 수기입력)</option>
+      </select>
+      <input type="number" id="nc-amount" placeholder="금액">
+    </div>
+    <div class="actions">
+      <button class="cancel" onclick="toggleNewCatForm()">취소</button>
+      <button class="save" onclick="submitNewCategory()">추가</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut as fbSignOut }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, push, set, update, remove, onValue, get }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC9k6iGUcNObjxQGtlVOuP5_YSpErT9DtA",
+  authDomain: "ward-app-257c4.firebaseapp.com",
+  databaseURL: "https://ward-app-257c4-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ward-app-257c4",
+  storageBucket: "ward-app-257c4.firebasestorage.app",
+  messagingSenderId: "261869081149",
+  appId: "1:261869081149:web:6f17dcd81b194ee5861054"
+};
+
+const ALLOWED_EMAIL = "kimsungmin83@gmail.com";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+const ROOT = "budget_app/months";
+
+let currentYm = null;
+let availableMonths = [];
+let monthListener = null;
+let currentData = {}; // {itemId: {category,name,note,type,amount,order}}
+
+const CAT_PALETTE = ["#6E8B5C","#5B7FA6","#B98A4E","#A15C7A","#4E9E93","#8D6EA6","#B15C4E","#6E8B8B"];
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function ymOf(date){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}`; }
+function ymAdd(ym, delta){
+  const [y,m] = ym.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  return ymOf(d);
+}
+function ymLabel(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return `${y}년 ${m}월`;
+}
+function won(n){ return (Number(n)||0).toLocaleString('ko-KR') + '원'; }
+function catColor(cat){
+  let h=0; for(let i=0;i<cat.length;i++) h = (h*31 + cat.charCodeAt(i)) >>> 0;
+  return CAT_PALETTE[h % CAT_PALETTE.length];
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+window.signInWithGoogle = async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch(e){ alert("로그인 오류: " + e.message); }
+};
+window.doSignOut = async () => {
+  if(monthListener) monthListener();
+  await fbSignOut(auth);
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if(user){
+    if(user.email !== ALLOWED_EMAIL){
+      alert("접근 권한이 없는 계정입니다.");
+      await fbSignOut(auth);
+      return;
+    }
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    document.getElementById('user-avatar').src = user.photoURL || '';
+    await loadAvailableMonths();
+    currentYm = availableMonths.length ? availableMonths[availableMonths.length-1] : ymOf(new Date());
+    subscribeMonth(currentYm);
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app-screen').style.display = 'none';
+  }
+});
+
+async function loadAvailableMonths(){
+  const snap = await get(ref(db, ROOT));
+  availableMonths = snap.exists() ? Object.keys(snap.val()).sort() : [];
+}
+
+window.navMonth = (delta) => {
+  const target = ymAdd(currentYm, delta);
+  currentYm = target;
+  subscribeMonth(currentYm);
+};
+
+function subscribeMonth(ym){
+  if(monthListener) monthListener();
+  document.getElementById('month-label').textContent = ymLabel(ym);
+  monthListener = onValue(ref(db, `${ROOT}/${ym}`), (snap) => {
+    if(!availableMonths.includes(ym)) availableMonths.push(ym);
+    availableMonths = [...new Set(availableMonths)].sort();
+    if(snap.exists()){
+      currentData = snap.val();
+      renderMonth();
+    } else {
+      currentData = {};
+      renderEmpty(ym);
+    }
+  });
+}
+
+function renderEmpty(ym){
+  document.getElementById('empty-state').style.display = 'block';
+  document.getElementById('categories-container').innerHTML = '';
+  document.getElementById('summary-bar').style.display = 'none';
+  document.getElementById('new-cat-btn').style.display = 'none';
+  const priorMonths = availableMonths.filter(m => m < ym);
+  const btn = document.getElementById('create-month-btn');
+  if(priorMonths.length){
+    document.getElementById('empty-text').textContent = `이 달의 가계부가 아직 없어요. ${priorMonths[priorMonths.length-1]} 데이터를 기준으로 만들까요? (고정 항목은 그대로, 변동 항목은 비워서 시작해요)`;
+    btn.textContent = "이 달 만들기";
+    btn.onclick = () => createCurrentMonth(priorMonths[priorMonths.length-1]);
+  } else {
+    document.getElementById('empty-text').textContent = "아직 가계부 데이터가 없어요. 빈 달로 시작할게요.";
+    btn.textContent = "빈 달로 시작하기";
+    btn.onclick = () => createCurrentMonth(null);
+  }
+}
+
+window.createCurrentMonth = async (sourceYm) => {
+  try{
+    const updates = {};
+    if(sourceYm){
+      const snap = await get(ref(db, `${ROOT}/${sourceYm}`));
+      const src = snap.exists() ? snap.val() : {};
+      Object.entries(src).forEach(([id, item]) => {
+        updates[id] = {
+          ...item,
+          amount: item.type === 'fixed' ? (item.amount || 0) : 0
+        };
+      });
+    }
+    if(Object.keys(updates).length === 0){
+      updates['__init__'] = { category:'기타', name:'첫 항목을 추가해주세요', note:'', type:'fixed', amount:0, order:Date.now() };
+    }
+    await set(ref(db, `${ROOT}/${currentYm}`), updates);
+    showToast("이 달 가계부를 만들었어요");
+  } catch(e){
+    alert("저장 실패: " + e.message + "\n\nFirebase 콘솔 > Realtime Database > 규칙(Rules)에서 budget_app 경로에 인증된 사용자 읽기/쓰기 권한이 있는지 확인해주세요.");
+  }
+};
+
+function renderMonth(){
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('summary-bar').style.display = 'flex';
+  document.getElementById('new-cat-btn').style.display = 'block';
+
+  const entries = Object.entries(currentData);
+  const categories = {};
+  entries.forEach(([id, item]) => {
+    const cat = item.category || '기타';
+    if(!categories[cat]) categories[cat] = [];
+    categories[cat].push({id, ...item});
+  });
+  Object.values(categories).forEach(list => list.sort((a,b)=>(a.order||0)-(b.order||0)));
+  const catNames = Object.keys(categories).sort((a,b)=>{
+    const oa = Math.min(...categories[a].map(i=>i.order||0));
+    const ob = Math.min(...categories[b].map(i=>i.order||0));
+    return oa-ob;
+  });
+
+  let fixedSum=0, variableSum=0;
+  entries.forEach(([id, item]) => {
+    if(item.type === 'variable') variableSum += Number(item.amount)||0;
+    else fixedSum += Number(item.amount)||0;
+  });
+  document.getElementById('sum-fixed').textContent = won(fixedSum);
+  document.getElementById('sum-variable').textContent = won(variableSum);
+  document.getElementById('sum-total').textContent = won(fixedSum+variableSum);
+
+  const container = document.getElementById('categories-container');
+  container.innerHTML = '';
+
+  catNames.forEach(cat => {
+    const items = categories[cat];
+    const catTotal = items.reduce((s,i)=>s+(Number(i.amount)||0),0);
+    const block = document.createElement('div');
+    block.className = 'category-block';
+
+    const head = document.createElement('div');
+    head.className = 'category-head';
+    head.style.setProperty('--cat-color', catColor(cat));
+    head.innerHTML = `<div class="name">${escapeHtml(cat)}</div><div class="total">${won(catTotal)}</div>`;
+    block.appendChild(head);
+
+    items.forEach(item => {
+      block.appendChild(buildItemRow(item));
+    });
+
+    const addRow = document.createElement('div');
+    addRow.className = 'add-item-row';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'ghost-btn';
+    addBtn.textContent = '+ 항목 추가';
+    addBtn.onclick = () => openInlineAdd(cat, addRow, addBtn);
+    addRow.appendChild(addBtn);
+    block.appendChild(addRow);
+
+    container.appendChild(block);
+  });
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function buildItemRow(item){
+  const row = document.createElement('div');
+  row.className = 'item-row' + (item.type === 'variable' && !item.amount ? ' needs-input' : '');
+
+  const main = document.createElement('div');
+  main.className = 'main';
+
+  const nameInput = document.createElement('input');
+  nameInput.className = 'name-input';
+  nameInput.value = item.name || '';
+  nameInput.onblur = () => updateField(item.id, 'name', nameInput.value);
+  main.appendChild(nameInput);
+
+  const noteInput = document.createElement('input');
+  noteInput.className = 'note-input';
+  noteInput.placeholder = '비고 (예: 12일)';
+  noteInput.value = item.note || '';
+  noteInput.onblur = () => updateField(item.id, 'note', noteInput.value);
+  main.appendChild(noteInput);
+
+  row.appendChild(main);
+
+  const typeChip = document.createElement('button');
+  typeChip.className = 'type-chip ' + (item.type === 'variable' ? 'variable' : 'fixed');
+  typeChip.textContent = item.type === 'variable' ? '변동' : '고정';
+  typeChip.onclick = () => {
+    const newType = item.type === 'variable' ? 'fixed' : 'variable';
+    updateField(item.id, 'type', newType);
+  };
+  row.appendChild(typeChip);
+
+  const amountInput = document.createElement('input');
+  amountInput.className = 'amount-input';
+  amountInput.type = 'text';
+  amountInput.value = item.amount ? Number(item.amount).toLocaleString('ko-KR') : '';
+  amountInput.placeholder = '0';
+  amountInput.onfocus = () => { amountInput.value = item.amount || ''; };
+  amountInput.onblur = () => {
+    const raw = Number(String(amountInput.value).replace(/[^0-9]/g,'')) || 0;
+    amountInput.value = raw.toLocaleString('ko-KR');
+    updateField(item.id, 'amount', raw);
+  };
+  row.appendChild(amountInput);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn';
+  delBtn.textContent = '✕';
+  delBtn.onclick = () => {
+    if(confirm(`"${item.name}" 항목을 삭제할까요? (이번 달에서만 삭제돼요)`)){
+      remove(ref(db, `${ROOT}/${currentYm}/${item.id}`)).catch(e => alert("삭제 실패: " + e.message));
+    }
+  };
+  row.appendChild(delBtn);
+
+  return row;
+}
+
+function updateField(itemId, field, value){
+  update(ref(db, `${ROOT}/${currentYm}/${itemId}`), { [field]: value })
+    .catch(e => alert("저장 실패: " + e.message));
+}
+
+function openInlineAdd(category, container, triggerBtn){
+  if(container.querySelector('.add-form')){
+    container.querySelector('.add-form').remove();
+    return;
+  }
+  const form = document.createElement('div');
+  form.className = 'add-form open';
+  form.style.marginTop = '8px';
+  form.innerHTML = `
+    <input type="text" placeholder="항목명" class="f-name">
+    <input type="text" placeholder="비고 (선택)" class="f-note">
+    <div class="row2">
+      <select class="f-type">
+        <option value="fixed">고정 (매달 유지)</option>
+        <option value="variable">변동 (매달 수기입력)</option>
+      </select>
+      <input type="number" placeholder="금액" class="f-amount">
+    </div>
+    <div class="actions">
+      <button class="cancel">취소</button>
+      <button class="save">추가</button>
+    </div>
+  `;
+  form.querySelector('.cancel').onclick = () => form.remove();
+  form.querySelector('.save').onclick = async () => {
+    const name = form.querySelector('.f-name').value.trim();
+    if(!name){ alert('항목명을 입력해주세요'); return; }
+    const note = form.querySelector('.f-note').value.trim();
+    const type = form.querySelector('.f-type').value;
+    const amount = Number(form.querySelector('.f-amount').value) || 0;
+    try{
+      const newRef = push(ref(db, `${ROOT}/${currentYm}`));
+      await set(newRef, { category, name, note, type, amount, order: Date.now() });
+      form.remove();
+      showToast('항목을 추가했어요');
+    } catch(e){
+      alert("저장 실패: " + e.message);
+    }
+  };
+  container.insertBefore(form, triggerBtn.nextSibling);
+}
+
+window.toggleNewCatForm = () => {
+  document.getElementById('new-cat-form').classList.toggle('open');
+};
+
+window.submitNewCategory = async () => {
+  const category = document.getElementById('nc-category').value.trim();
+  const name = document.getElementById('nc-name').value.trim();
+  const note = document.getElementById('nc-note').value.trim();
+  const type = document.getElementById('nc-type').value;
+  const amount = Number(document.getElementById('nc-amount').value) || 0;
+  if(!category || !name){ alert('카테고리명과 항목명을 입력해주세요'); return; }
+  try{
+    const newRef = push(ref(db, `${ROOT}/${currentYm}`));
+    await set(newRef, { category, name, note, type, amount, order: Date.now() });
+    ['nc-category','nc-name','nc-note','nc-amount'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-cat-form').classList.remove('open');
+    showToast('새 카테고리를 추가했어요');
+  } catch(e){
+    alert("저장 실패: " + e.message);
+  }
+};
+</script>
+</body>
+</html>

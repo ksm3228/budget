@@ -34,7 +34,8 @@ let samsungListener = null;
 let condolenceListener = null;
 let memoListener = null;
 let memoNotes = {};
-let memoSelectedId = null;
+let memoEditMode = false;
+let memoDrafts = {};
 let condolenceEntries = {};
 let condolenceEditMode = false;
 let samsungEntries = {};
@@ -1656,19 +1657,23 @@ function memoSortedNames(){
   return Object.entries(memoNotes).sort((x, y) => (Number(x[1].order ?? x[1].ts) || 0) - (Number(y[1].order ?? y[1].ts) || 0));
 }
 
+window.toggleMemoEdit = () => {
+  memoEditMode = !memoEditMode;
+  const btn = document.getElementById('memo-edit-btn');
+  btn.textContent = memoEditMode ? '완료' : '편집';
+  btn.classList.toggle('on', memoEditMode);
+  renderMemo();
+};
+
 window.addMemoName = () => {
   const input = document.getElementById('memo-name-input');
   const name = input.value.trim();
   if(!name) return;
   const orders = Object.values(memoNotes).map(n => Number(n.order) || 0);
   const order = (orders.length ? Math.max(...orders) : 0) + 1;
-  const newRef = push(ref(db, MEMO_PATH));
-  memoSelectedId = newRef.key;
   input.value = '';
-  set(newRef, { name, order, ts: Date.now() }).catch(er => alert('저장 실패: ' + er.message));
+  set(push(ref(db, MEMO_PATH)), { name, order, ts: Date.now() }).catch(er => alert('저장 실패: ' + er.message));
 };
-
-window.selectMemoName = (id) => { memoSelectedId = id; renderMemo(); };
 
 window.moveMemoName = (id, dir) => {
   const names = memoSortedNames().map(p => p[0]);
@@ -1686,17 +1691,15 @@ window.deleteMemoName = (id) => {
   if(!n) return;
   const cnt = Object.keys(n.entries || {}).length;
   if(!confirm(`"${n.name}" 이름과 기록 ${cnt}건을 모두 삭제할까요?`)) return;
-  if(memoSelectedId === id) memoSelectedId = null;
+  delete memoDrafts[id];
   remove(ref(db, `${MEMO_PATH}/${id}`)).catch(er => alert('삭제 실패: ' + er.message));
 };
 
-window.addMemoEntry = () => {
-  if(!memoSelectedId) return;
-  const input = document.getElementById('memo-entry-input');
-  const text = input.value.trim();
+window.addMemoEntry = (id) => {
+  const text = (memoDrafts[id] || '').trim();
   if(!text) return;
-  input.value = '';
-  push(ref(db, `${MEMO_PATH}/${memoSelectedId}/entries`), { text, ts: Date.now() })
+  memoDrafts[id] = '';
+  push(ref(db, `${MEMO_PATH}/${id}/entries`), { text, ts: Date.now() })
     .catch(er => alert('저장 실패: ' + er.message));
 };
 
@@ -1706,92 +1709,103 @@ window.deleteMemoEntry = (nameId, entryId) => {
 };
 
 function renderMemo(){
+  const rowsEl = document.getElementById('memo-rows');
   const names = memoSortedNames();
-  if(!names.some(p => p[0] === memoSelectedId)) memoSelectedId = names.length ? names[0][0] : null;
 
-  const namesEl = document.getElementById('memo-names');
-  namesEl.innerHTML = '';
+  // 입력 중이던 칸의 포커스 보존
+  const ae = document.activeElement;
+  const focusId = (ae && ae.dataset && ae.dataset.memoInput) || null;
+  const caret = focusId ? ae.selectionStart : 0;
+
+  rowsEl.innerHTML = '';
   if(names.length === 0){
     const empty = document.createElement('div');
     empty.className = 'memo-empty';
-    empty.textContent = '이름을 추가하세요';
-    namesEl.appendChild(empty);
+    empty.textContent = '위에서 이름을 추가하세요';
+    rowsEl.appendChild(empty);
+    return;
   }
-  names.forEach(([id, n], idx) => {
-    const item = document.createElement('div');
-    item.className = 'memo-name-item' + (id === memoSelectedId ? ' active' : '');
-    item.onclick = () => selectMemoName(id);
 
+  const pad2 = (v) => String(v).padStart(2, '0');
+  names.forEach(([id, n], idx) => {
+    const row = document.createElement('div');
+    row.className = 'memo-row';
+
+    // 좌측: 이름 (편집 모드에서만 이동/삭제 버튼)
+    const nameCell = document.createElement('div');
+    nameCell.className = 'memo-row-name';
     const label = document.createElement('div');
-    const mn = document.createElement('span');
+    const mn = document.createElement('div');
     mn.className = 'mn';
     mn.textContent = n.name || '';
-    const mc = document.createElement('span');
+    const mc = document.createElement('div');
     mc.className = 'mc';
     mc.textContent = `${Object.keys(n.entries || {}).length}건`;
     label.append(mn, mc);
+    nameCell.appendChild(label);
+    if(memoEditMode){
+      const actions = document.createElement('div');
+      actions.className = 'ma';
+      const mk = (txt, title, fn, disabled) => {
+        const b = document.createElement('button');
+        b.textContent = txt; b.title = title; b.disabled = !!disabled;
+        b.onclick = fn;
+        return b;
+      };
+      actions.append(
+        mk('▲', '위로', () => moveMemoName(id, -1), idx === 0),
+        mk('▼', '아래로', () => moveMemoName(id, 1), idx === names.length - 1),
+        mk('✕', '이름 삭제', () => deleteMemoName(id))
+      );
+      nameCell.appendChild(actions);
+    }
 
-    const actions = document.createElement('div');
-    actions.className = 'ma';
-    const mk = (txt, title, fn, disabled) => {
-      const b = document.createElement('button');
-      b.textContent = txt; b.title = title; b.disabled = !!disabled;
-      if(disabled) b.style.opacity = '.3';
-      b.onclick = (ev) => { ev.stopPropagation(); fn(); };
-      return b;
-    };
-    actions.append(
-      mk('▲', '위로', () => moveMemoName(id, -1), idx === 0),
-      mk('▼', '아래로', () => moveMemoName(id, 1), idx === names.length - 1),
-      mk('✕', '이름 삭제', () => deleteMemoName(id))
-    );
-    item.append(label, actions);
-    namesEl.appendChild(item);
-  });
+    // 우측: 해당 이름의 기록 전체 + 입력칸 (항상 표시)
+    const body = document.createElement('div');
+    body.className = 'memo-row-body';
+    const entries = Object.entries(n.entries || {}).sort((x, y) => (y[1].ts || 0) - (x[1].ts || 0));
+    entries.forEach(([eid, e]) => {
+      const entry = document.createElement('div');
+      entry.className = 'memo-entry';
+      const d = new Date(e.ts || Date.now());
+      const mt = document.createElement('div');
+      mt.className = 'mt';
+      const text = document.createElement('div');
+      text.className = 'mtext';
+      text.textContent = e.text || '';
+      const date = document.createElement('div');
+      date.className = 'mdate';
+      date.textContent = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      mt.append(text, date);
+      const del = document.createElement('button');
+      del.className = 'mdel';
+      del.textContent = '✕';
+      del.title = '기록 삭제';
+      del.onclick = () => deleteMemoEntry(id, eid);
+      entry.append(mt, del);
+      body.appendChild(entry);
+    });
 
-  const titleEl = document.getElementById('memo-right-title');
-  const formEl = document.getElementById('memo-entry-form');
-  const entriesEl = document.getElementById('memo-entries');
-  entriesEl.innerHTML = '';
+    const form = document.createElement('div');
+    form.className = 'memo-add-form';
+    const ta = document.createElement('textarea');
+    ta.rows = 1;
+    ta.placeholder = '내용 기록';
+    ta.dataset.memoInput = id;
+    ta.value = memoDrafts[id] || '';
+    ta.oninput = () => { memoDrafts[id] = ta.value; };
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '추가';
+    addBtn.onclick = () => addMemoEntry(id);
+    form.append(ta, addBtn);
+    body.appendChild(form);
 
-  if(!memoSelectedId){
-    titleEl.textContent = '왼쪽에서 이름을 선택하세요';
-    formEl.style.display = 'none';
-    return;
-  }
-  const sel = memoNotes[memoSelectedId];
-  titleEl.textContent = sel.name || '';
-  formEl.style.display = 'flex';
+    row.append(nameCell, body);
+    rowsEl.appendChild(row);
 
-  const entries = Object.entries(sel.entries || {}).sort((x, y) => (y[1].ts || 0) - (x[1].ts || 0));
-  if(entries.length === 0){
-    const empty = document.createElement('div');
-    empty.className = 'memo-empty';
-    empty.textContent = '아직 기록이 없어요';
-    entriesEl.appendChild(empty);
-    return;
-  }
-  entries.forEach(([eid, e]) => {
-    const row = document.createElement('div');
-    row.className = 'memo-entry';
-    const d = new Date(e.ts || Date.now());
-    const pad2 = (v) => String(v).padStart(2, '0');
-    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    const mt = document.createElement('div');
-    mt.className = 'mt';
-    const text = document.createElement('div');
-    text.className = 'mtext';
-    text.textContent = e.text || '';
-    const date = document.createElement('div');
-    date.className = 'mdate';
-    date.textContent = dateStr;
-    mt.append(text, date);
-    const del = document.createElement('button');
-    del.className = 'mdel';
-    del.textContent = '✕';
-    del.title = '기록 삭제';
-    del.onclick = () => deleteMemoEntry(memoSelectedId, eid);
-    row.append(mt, del);
-    entriesEl.appendChild(row);
+    if(focusId === id){
+      ta.focus();
+      try{ ta.setSelectionRange(caret, caret); }catch(_){}
+    }
   });
 }

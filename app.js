@@ -1707,7 +1707,7 @@ window.addMemoEntry = (id) => {
 
 function memoAutosize(el){
   el.style.height = 'auto';
-  el.style.height = el.scrollHeight + 'px';
+  el.style.height = (el.scrollHeight + (el.offsetHeight - el.clientHeight)) + 'px';
 }
 
 function saveMemoEntryEdit(nameId, entryId, ta, orig){
@@ -1815,11 +1815,11 @@ function renderMemo(){
     const form = document.createElement('div');
     form.className = 'memo-add-form';
     const ta = document.createElement('textarea');
-    ta.rows = 1;
+    ta.rows = 2;
     ta.placeholder = '내용 기록';
     ta.dataset.memoKey = 'add:' + id;
     ta.value = memoDrafts[id] || '';
-    ta.oninput = () => { memoDrafts[id] = ta.value; };
+    ta.oninput = () => { memoDrafts[id] = ta.value; memoAutosize(ta); };
     const addBtn = document.createElement('button');
     addBtn.textContent = '추가';
     addBtn.onclick = () => addMemoEntry(id);
@@ -1832,7 +1832,7 @@ function renderMemo(){
     if(focusKey === 'add:' + id) focusEl = ta;
   });
 
-  rowsEl.querySelectorAll('textarea.mtext-edit').forEach(memoAutosize);
+  rowsEl.querySelectorAll('textarea').forEach(memoAutosize);
   if(focusEl){
     focusEl.focus();
     try{ focusEl.setSelectionRange(caret, caret); }catch(_){}

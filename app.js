@@ -1672,7 +1672,7 @@ window.addMemoName = () => {
   const name = input.value.trim();
   if(!name) return;
   const orders = Object.values(memoNotes).map(n => Number(n.order) || 0);
-  const order = (orders.length ? Math.max(...orders) : 0) + 1;
+  const order = (orders.length ? Math.min(...orders) : 1) - 1;
   input.value = '';
   set(push(ref(db, MEMO_PATH)), { name, order, ts: Date.now() }).catch(er => alert('저장 실패: ' + er.message));
 };

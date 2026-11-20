@@ -340,7 +340,7 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 
 /* 메모장 */
 .memo-name-form{ display:flex; gap:6px; margin-bottom:12px; }
-.memo-name-form input{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:13px; font-family:inherit; background:#fff; }
+.memo-name-form input{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:16px; font-family:inherit; background:#fff; }
 .memo-name-form button, .memo-add-form button{ border:none; background:var(--accent); color:#fff; border-radius:8px; padding:8px 12px; font-size:12.5px; font-weight:700; cursor:pointer; flex:0 0 auto; }
 .memo-rows{ display:flex; flex-direction:column; gap:10px; }
 .memo-row{ display:flex; align-items:stretch; gap:8px; }
@@ -357,5 +357,5 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .memo-entry .mdate{ font-size:10.5px; color:var(--sub); margin-top:2px; }
 .memo-entry .mdel{ border:none; background:none; color:var(--sub); font-size:14px; cursor:pointer; flex:0 0 auto; padding:0 2px; }
 .memo-add-form{ display:flex; gap:6px; align-items:flex-end; }
-.memo-add-form textarea{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:7px 8px; font-size:13px; font-family:inherit; background:#fff; resize:vertical; }
+.memo-add-form textarea{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:7px 8px; font-size:16px; font-family:inherit; background:#fff; resize:vertical; }
 .memo-empty{ color:var(--sub); font-size:12.5px; text-align:center; padding:14px 0; }

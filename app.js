@@ -1,0 +1,1636 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut as fbSignOut }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, push, set, update, remove, onValue, get }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC9k6iGUcNObjxQGtlVOuP5_YSpErT9DtA",
+  authDomain: "ward-app-257c4.firebaseapp.com",
+  databaseURL: "https://ward-app-257c4-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ward-app-257c4",
+  storageBucket: "ward-app-257c4.firebasestorage.app",
+  messagingSenderId: "261869081149",
+  appId: "1:261869081149:web:6f17dcd81b194ee5861054"
+};
+
+const ALLOWED_EMAIL = "kimsungmin83@gmail.com";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+const ROOT = "budget_app/months";
+
+let currentYm = null;
+let availableMonths = [];
+let monthListener = null;
+let currentData = {};
+let activeTab = 'fixed';
+let editMode = false;
+let dragItemId = null;
+let selectedIds = new Set();
+let activeDashboard = null; // null | 'card' | 'samsung'
+let samsungListener = null;
+let condolenceListener = null;
+let condolenceEntries = {};
+let condolenceEditMode = false;
+let samsungEntries = {};
+let tabLabels = { income:'수입', fixed:'고정지출', variable:'변동지출', expected:'향후예상수입', asset:'자산현황', net:'순이익' };
+let tabOrder = ['income','fixed','variable','expected','asset','net'];
+let currentVisibleIds = [];
+
+const CAT_PALETTE = ["#6E8B5C","#5B7FA6","#B98A4E","#A15C7A","#4E9E93","#8D6EA6","#B15C4E","#6E8B8B"];
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function ymOf(date){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}`; }
+function ymAdd(ym, delta){
+  const [y,m] = ym.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  return ymOf(d);
+}
+function ymLabel(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return `${y}년 ${m}월`;
+}
+function won(n){ return (Number(n)||0).toLocaleString('ko-KR') + '원'; }
+function catColor(cat){
+  let h=0; for(let i=0;i<cat.length;i++) h = (h*31 + cat.charCodeAt(i)) >>> 0;
+  return CAT_PALETTE[h % CAT_PALETTE.length];
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+window.signInWithGoogle = async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch(e){ alert("로그인 오류: " + e.message); }
+};
+window.doSignOut = async () => {
+  if(monthListener) monthListener();
+  await fbSignOut(auth);
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if(user){
+    if(user.email !== ALLOWED_EMAIL){
+      alert("접근 권한이 없는 계정입니다.");
+      await fbSignOut(auth);
+      return;
+    }
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'block';
+    document.getElementById('user-avatar').src = user.photoURL || '';
+    await loadTabLabels();
+    await loadTabOrder();
+    await loadAvailableMonths();
+    currentYm = availableMonths.length ? availableMonths[availableMonths.length-1] : ymOf(new Date());
+    subscribeMonth(currentYm);
+    refreshDashButtonLabel();
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app-screen').style.display = 'none';
+  }
+});
+
+async function loadAvailableMonths(){
+  const snap = await get(ref(db, ROOT));
+  availableMonths = snap.exists() ? Object.keys(snap.val()).sort() : [];
+}
+
+async function loadTabLabels(){
+  try{
+    const snap = await get(ref(db, 'budget_app/tabLabels'));
+    if(snap.exists()){
+      tabLabels = { ...tabLabels, ...snap.val() };
+    }
+  } catch(e){ /* ignore, defaults are fine */ }
+  Object.keys(tabLabels).forEach(key => {
+    const el = document.getElementById(`tn-${key}`);
+    if(el) el.textContent = tabLabels[key];
+  });
+}
+
+window.renameTab = (key) => {
+  const current = tabLabels[key] || '';
+  const newName = prompt('탭 이름을 입력해주세요', current);
+  if(newName === null) return;
+  const trimmed = newName.trim();
+  if(!trimmed) return;
+  tabLabels[key] = trimmed;
+  const el = document.getElementById(`tn-${key}`);
+  if(el) el.textContent = trimmed;
+  set(ref(db, `budget_app/tabLabels/${key}`), trimmed)
+    .then(() => showToast('탭 이름을 바꿨어요'))
+    .catch(e => alert("저장 실패: " + e.message));
+};
+
+const TAB_KEYS_DEFAULT = ['income','fixed','variable','expected','asset','net'];
+
+function applyTabOrder(){
+  const row = document.querySelector('.tabs-row');
+  if(!row) return;
+  tabOrder.forEach(key => {
+    const btn = document.getElementById(`tab-${key}`);
+    if(btn) row.appendChild(btn);
+  });
+}
+
+async function loadTabOrder(){
+  try{
+    const snap = await get(ref(db, 'budget_app/tabOrder'));
+    if(snap.exists()){
+      const saved = snap.val().filter(k => TAB_KEYS_DEFAULT.includes(k));
+      TAB_KEYS_DEFAULT.forEach(k => { if(!saved.includes(k)) saved.push(k); });
+      tabOrder = saved;
+    }
+  } catch(e){ /* ignore, defaults are fine */ }
+  applyTabOrder();
+}
+
+window.moveTabOrder = (key, direction) => {
+  const idx = tabOrder.indexOf(key);
+  const newIdx = idx + direction;
+  if(newIdx < 0 || newIdx >= tabOrder.length) return;
+  [tabOrder[idx], tabOrder[newIdx]] = [tabOrder[newIdx], tabOrder[idx]];
+  applyTabOrder();
+  set(ref(db, 'budget_app/tabOrder'), tabOrder).catch(e => alert("저장 실패: " + e.message));
+};
+
+window.navMonth = (delta) => {
+  const target = ymAdd(currentYm, delta);
+  currentYm = target;
+  selectedIds.clear();
+  subscribeMonth(currentYm);
+};
+
+window.setTab = (tab) => {
+  activeTab = tab;
+  selectedIds.clear();
+  renderMonth();
+};
+
+window.toggleEditMode = () => {
+  editMode = !editMode;
+  selectedIds.clear();
+  const btn = document.getElementById('edit-toggle-btn');
+  btn.textContent = editMode ? '완료' : '편집';
+  btn.classList.toggle('on', editMode);
+  document.getElementById('bulk-bar').classList.toggle('show', editMode);
+  renderMonth();
+};
+
+function subscribeMonth(ym){
+  if(monthListener) monthListener();
+  document.getElementById('month-label').textContent = ymLabel(ym);
+  monthListener = onValue(ref(db, `${ROOT}/${ym}`), (snap) => {
+    if(!availableMonths.includes(ym)) availableMonths.push(ym);
+    availableMonths = [...new Set(availableMonths)].sort();
+    if(snap.exists()){
+      currentData = snap.val();
+      if(!activeDashboard) renderMonth();
+    } else {
+      currentData = {};
+      if(!activeDashboard) renderEmpty(ym);
+    }
+  });
+}
+
+async function getCardStats(){
+  const snap = await get(ref(db, ROOT));
+  const allMonths = snap.exists() ? snap.val() : {};
+  const months = Object.keys(allMonths).sort();
+  const results = months.map(ym => {
+    const data = allMonths[ym] || {};
+    let total = 0;
+    Object.values(data).forEach(it => {
+      if(it.category === '카드비' && it.type === 'variable') total += Number(it.amount)||0;
+    });
+    return { ym, total };
+  });
+  const withData = results.filter(r => r.total > 0);
+  const avg = withData.length ? Math.round(withData.reduce((s,r) => s+r.total, 0) / withData.length) : 0;
+  const max = Math.max(...results.map(r => r.total), 1);
+  return { results, avg, max };
+}
+
+async function refreshDashButtonLabel(){
+  const btn = document.getElementById('dash-toggle-btn');
+  if(activeDashboard) return;
+  const { avg } = await getCardStats();
+  btn.innerHTML = avg > 0
+    ? `📊 카드평균사용액 <span style="font-weight:800;">· 평균 ${won(avg)}</span>`
+    : '📊 카드평균사용액';
+}
+
+window.toggleDashboard = async (which) => {
+  activeDashboard = (activeDashboard === which) ? null : which;
+
+  document.getElementById('dash-toggle-btn').classList.toggle('active', activeDashboard === 'card');
+  document.getElementById('samsung-toggle-btn').classList.toggle('active', activeDashboard === 'samsung');
+  document.getElementById('donation-toggle-btn').classList.toggle('active', activeDashboard === 'donation');
+  document.getElementById('condolence-toggle-btn').classList.toggle('active', activeDashboard === 'condolence');
+  document.getElementById('dashboard-view').style.display = activeDashboard === 'card' ? 'block' : 'none';
+  document.getElementById('samsung-view').style.display = activeDashboard === 'samsung' ? 'block' : 'none';
+  document.getElementById('donation-view').style.display = activeDashboard === 'donation' ? 'block' : 'none';
+  document.getElementById('condolence-view').style.display = activeDashboard === 'condolence' ? 'block' : 'none';
+  document.getElementById('tabs-area').style.display = activeDashboard ? 'none' : 'block';
+  document.getElementById('categories-container').style.display = activeDashboard ? 'none' : 'block';
+  document.getElementById('new-cat-btn').style.display = activeDashboard ? 'none' : 'block';
+  document.getElementById('empty-state').style.display = 'none';
+
+  if(samsungListener){ samsungListener(); samsungListener = null; }
+  if(condolenceListener){ condolenceListener(); condolenceListener = null; }
+
+  if(activeDashboard === 'card'){
+    await renderDashboard();
+  } else if(activeDashboard === 'samsung'){
+    subscribeSamsungList();
+  } else if(activeDashboard === 'donation'){
+    await renderDonationDashboard();
+  } else if(activeDashboard === 'condolence'){
+    subscribeCondolenceList();
+  } else {
+    if(Object.keys(currentData).length) renderMonth(); else renderEmpty(currentYm);
+    refreshDashButtonLabel();
+  }
+};
+
+async function renderDashboard(){
+  const chartEl = document.getElementById('dash-chart');
+  const statsEl = document.getElementById('dash-stats');
+  chartEl.innerHTML = '<div class="dash-loading">불러오는 중...</div>';
+  statsEl.innerHTML = '';
+
+  const { results, avg, max } = await getCardStats();
+
+  if(results.length === 0){
+    chartEl.innerHTML = '<div class="dash-loading">"카드비" 카테고리(변동지출) 데이터가 없어요. 카테고리명이 정확히 "카드비"여야 집계돼요.</div>';
+    return;
+  }
+
+  const barW = 46, gap = 18, chartH = 190;
+  const svgW = results.length * (barW+gap) + gap;
+  let bars = '';
+  results.forEach((r, i) => {
+    const x = gap + i*(barW+gap);
+    const h = Math.round((r.total/max) * (chartH-36));
+    const y = chartH - h - 24;
+    const label = r.ym.slice(2).replace('-','.');
+    bars += `
+      <rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,2)}" rx="6" fill="${r.total>0?'#5B7FA6':'#E7E4DD'}"></rect>
+      <text x="${x+barW/2}" y="${y-6}" font-size="10" text-anchor="middle" fill="#2B2A28">${r.total? Math.round(r.total/10000).toLocaleString('ko-KR')+'만':'-'}</text>
+      <text x="${x+barW/2}" y="${chartH-6}" font-size="10" text-anchor="middle" fill="#8A8680">${label}</text>
+    `;
+  });
+  let avgLine = '';
+  if(avg > 0){
+    const avgY = chartH - Math.round((avg/max) * (chartH-36)) - 24;
+    avgLine = `<line x1="0" y1="${avgY}" x2="${svgW}" y2="${avgY}" stroke="#C4622D" stroke-width="1.5" stroke-dasharray="4,3"></line>
+      <text x="4" y="${avgY-4}" font-size="10" fill="#C4622D">평균 ${avg.toLocaleString('ko-KR')}원</text>`;
+  }
+
+  chartEl.innerHTML = `<svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 320)}" height="200" style="display:block;">${bars}${avgLine}</svg>`;
+
+  const withData = results.filter(r => r.total > 0);
+  const last = results[results.length-1];
+  const trendDiff = (withData.length >= 2) ? (withData[withData.length-1].total - withData[withData.length-2].total) : 0;
+  const trendText = trendDiff === 0 ? '변동 없음' : (trendDiff > 0 ? `▲ ${won(trendDiff)} 증가` : `▼ ${won(Math.abs(trendDiff))} 감소`);
+
+  statsEl.innerHTML = `
+    <div class="dash-stat"><div class="t">${last.ym} 사용액</div><div class="v">${won(last.total)}</div></div>
+    <div class="dash-stat"><div class="t">평균 (데이터 있는 달)</div><div class="v">${won(avg)}</div></div>
+    <div class="dash-stat"><div class="t">전월 대비</div><div class="v">${trendText}</div></div>
+  `;
+}
+
+let donationItemsByMonth = {};
+let coffeeItemsByMonth = {};
+
+async function getCategoryItemStats(matchFn){
+  const snap = await get(ref(db, ROOT));
+  const allMonths = snap.exists() ? snap.val() : {};
+  const months = Object.keys(allMonths).sort();
+  const itemsByMonth = {};
+  const results = months.map(ym => {
+    const data = allMonths[ym] || {};
+    let total = 0;
+    const items = [];
+    Object.values(data).forEach(it => {
+      if(matchFn(it)){
+        total += Number(it.amount)||0;
+        items.push({ name: it.name || '(이름 없음)', amount: Number(it.amount)||0 });
+      }
+    });
+    itemsByMonth[ym] = items;
+    return { ym, total };
+  });
+  const total = results.reduce((s,r) => s+r.total, 0);
+  return { results, total, itemsByMonth };
+}
+
+async function getDonationStats(){
+  const { results, total, itemsByMonth } = await getCategoryItemStats(
+    it => (it.category||'').includes('후원') && it.type === 'variable'
+  );
+  donationItemsByMonth = itemsByMonth;
+  return { results, total };
+}
+
+async function getCoffeeStats(){
+  const { results, total, itemsByMonth } = await getCategoryItemStats(
+    it => (it.category||'') === '커피' && it.type === 'variable'
+  );
+  coffeeItemsByMonth = itemsByMonth;
+  return { results, total };
+}
+
+function renderMonthlyBreakdown(itemsByMonth, listElId, idPrefix, emptyMsg){
+  const listEl = document.getElementById(listElId);
+  const months = Object.keys(itemsByMonth)
+    .filter(ym => (itemsByMonth[ym] || []).length > 0)
+    .sort()
+    .reverse();
+
+  if(months.length === 0){
+    listEl.innerHTML = `<div class="donation-breakdown-empty">${emptyMsg}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = months.map(ym => {
+    const items = (itemsByMonth[ym] || []).slice().sort((a,b) => b.amount-a.amount);
+    const monthTotal = items.reduce((s,it) => s+it.amount, 0);
+    const rows = items.map(it => `
+      <div class="donation-breakdown-row">
+        <span class="n">${escapeHtml(it.name)}</span>
+        <span class="a">${won(it.amount)}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="donation-month-group" id="${idPrefix}-month-${ym}">
+        <div class="donation-month-head">${ymLabel(ym)} <span>${won(monthTotal)}</span></div>
+        ${rows}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderDonationBreakdown(){
+  renderMonthlyBreakdown(donationItemsByMonth, 'donation-breakdown', 'donation', '후원 내역이 없어요.');
+}
+
+function renderCoffeeBreakdown(){
+  renderMonthlyBreakdown(coffeeItemsByMonth, 'coffee-breakdown', 'coffee', '커피 지출 내역이 없어요.');
+}
+
+async function renderDonationDashboard(){
+  document.getElementById('donation-breakdown').innerHTML = '<div class="dash-loading">불러오는 중...</div>';
+
+  const { results } = await getDonationStats();
+
+  if(results.length === 0){
+    document.getElementById('donation-breakdown-title').style.display = 'none';
+    document.getElementById('donation-breakdown').innerHTML = '<div class="donation-breakdown-empty">변동지출 탭에 카테고리명에 "후원"이 들어간 데이터가 없어요.</div>';
+    document.getElementById('donation-yearly').innerHTML = '';
+  } else {
+    document.getElementById('donation-breakdown-title').style.display = 'block';
+    renderDonationBreakdown();
+    renderYearlyBoxes('donation-yearly', computeYearlyTotals(results));
+  }
+
+  await renderLectureFeeDashboard();
+  await renderCoffeeDashboard();
+}
+
+async function renderCoffeeDashboard(){
+  document.getElementById('coffee-breakdown').innerHTML = '<div class="dash-loading">불러오는 중...</div>';
+  const { results } = await getCoffeeStats();
+
+  if(results.length === 0){
+    document.getElementById('coffee-breakdown-title').style.display = 'none';
+    document.getElementById('coffee-breakdown').innerHTML = '<div class="donation-breakdown-empty">변동지출 탭에 카테고리명이 정확히 "커피"인 항목이 없어요.</div>';
+    document.getElementById('coffee-yearly').innerHTML = '';
+    return;
+  }
+  document.getElementById('coffee-breakdown-title').style.display = 'block';
+  renderCoffeeBreakdown();
+  renderYearlyBoxes('coffee-yearly', computeYearlyTotals(results));
+}
+
+function computeYearlyTotals(results){
+  const years = {};
+  results.forEach(r => {
+    const y = r.ym.slice(0,4);
+    years[y] = (years[y]||0) + r.total;
+  });
+  return Object.keys(years).sort().map(y => ({ year: y, total: years[y] }));
+}
+
+function renderYearlyBoxes(containerId, yearlyData){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(yearlyData.length === 0){ el.innerHTML = ''; return; }
+  el.innerHTML = yearlyData.map(y => `
+    <div class="samsung-total-box"><div class="t">${y.year}년</div><div class="v">${won(y.total)}</div></div>
+  `).join('');
+}
+
+async function getLectureFeeStats(){
+  const snap = await get(ref(db, ROOT));
+  const allMonths = snap.exists() ? snap.val() : {};
+  const months = Object.keys(allMonths).sort();
+  const results = months.map(ym => {
+    const data = allMonths[ym] || {};
+    let total = 0;
+    Object.values(data).forEach(it => {
+      if(it.type === 'income' && (it.name||'').includes('강의비')) total += Number(it.amount)||0;
+    });
+    return { ym, total };
+  });
+  const total = results.reduce((s,r) => s+r.total, 0);
+  return { results, total };
+}
+
+async function renderLectureFeeDashboard(){
+  const { results } = await getLectureFeeStats();
+  const latestTag = document.getElementById('lecture-latest');
+  if(results.length === 0 || results.every(r => r.total === 0)){
+    document.getElementById('lecture-yearly').innerHTML = '';
+    if(latestTag) latestTag.textContent = '';
+    return;
+  }
+  renderYearlyBoxes('lecture-yearly', computeYearlyTotals(results));
+
+  const withData = results.filter(r => r.total > 0);
+  const latest = withData[withData.length - 1];
+  if(latestTag && latest){
+    latestTag.innerHTML = `· 최근 반영 ${ymLabel(latest.ym)} <b>${won(latest.total)}</b>`;
+  }
+}
+
+const SAMSUNG_PATH = 'budget_app/samsungCardUsage';
+
+let samsungEditMode = false;
+
+function subscribeSamsungList(){
+  const keyInput = document.getElementById('samsung-api-key');
+  const savedKey = localStorage.getItem('anthropic_api_key');
+  if(savedKey) keyInput.value = savedKey;
+  keyInput.onchange = () => localStorage.setItem('anthropic_api_key', keyInput.value.trim());
+
+  samsungListener = onValue(ref(db, SAMSUNG_PATH), (snap) => {
+    samsungEntries = snap.exists() ? snap.val() : {};
+    renderSamsungList();
+  });
+}
+
+window.toggleSamsungEdit = () => {
+  samsungEditMode = !samsungEditMode;
+  const btn = document.getElementById('samsung-edit-btn');
+  btn.textContent = samsungEditMode ? '완료' : '편집';
+  btn.classList.toggle('on', samsungEditMode);
+  renderSamsungList();
+};
+
+function renderSamsungList(){
+  const listEl = document.getElementById('samsung-list');
+  const totalEl = document.getElementById('samsung-total');
+  const discountTotalEl = document.getElementById('samsung-discount-total');
+  const discountRateEl = document.getElementById('samsung-discount-rate');
+  const entries = Object.entries(samsungEntries).sort((a,b) => (b[1].ts||0)-(a[1].ts||0));
+
+  const totalAmount = entries.reduce((s,[id,e]) => s + (Number(e.amount)||0), 0);
+  const totalDiscount = entries.reduce((s,[id,e]) => s + (Number(e.discount)||0), 0);
+  const overallRate = totalAmount > 0 ? Math.round((totalDiscount/totalAmount)*1000)/10 : 0;
+
+  totalEl.textContent = won(totalAmount);
+  discountTotalEl.textContent = won(totalDiscount);
+  discountRateEl.textContent = `${overallRate}%`;
+
+  renderSamsungTrends();
+
+  if(entries.length === 0){
+    listEl.innerHTML = '<div class="samsung-empty">아직 등록된 사용내역이 없어요. 아래에서 사진을 업로드해보세요.</div>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  entries.forEach(([id, e]) => {
+    const row = document.createElement('div');
+    row.className = 'samsung-entry';
+    const rateText = e.discount > 0 ? ` · <span class="se-rate">할인율 ${e.discountRate}%</span>` : '';
+    const monthKey = e.ym || (e.ts ? `${new Date(e.ts).getFullYear()}-${pad(new Date(e.ts).getMonth()+1)}` : '');
+    let fullDate = e.date;
+    if(!fullDate && e.ts){
+      const d = new Date(e.ts);
+      fullDate = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    }
+    row.innerHTML = `
+      <div class="se-main">
+        <div class="se-label">${escapeHtml(e.label || '사용내역')} — ${won(e.amount)} <span class="se-month">${fullDate || monthKey}</span></div>
+        <div class="se-sub">할인액 ${won(e.discount||0)}${rateText}</div>
+      </div>
+      ${samsungEditMode ? '<button class="se-move">📅</button><button class="se-del">✕</button>' : ''}
+    `;
+    if(samsungEditMode){
+      row.querySelector('.se-move').onclick = () => {
+        const input = prompt('이 내역을 옮길 달을 입력해주세요 (예: 2026-06)', monthKey || currentYm);
+        if(input === null) return;
+        const trimmed = input.trim();
+        if(!/^\d{4}-\d{2}$/.test(trimmed)){ alert('YYYY-MM 형식으로 입력해주세요 (예: 2026-06)'); return; }
+        update(ref(db, `${SAMSUNG_PATH}/${id}`), { ym: trimmed }).catch(er => alert('이동 실패: '+er.message));
+      };
+      row.querySelector('.se-del').onclick = () => {
+        if(confirm('이 내역을 삭제할까요?')) remove(ref(db, `${SAMSUNG_PATH}/${id}`)).catch(er => alert('삭제 실패: '+er.message));
+      };
+    }
+    listEl.appendChild(row);
+  });
+}
+
+function computeSamsungMonthly(){
+  const months = {};
+  Object.values(samsungEntries).forEach(e => {
+    let key = e.ym;
+    if(!key){
+      const d = new Date(e.ts || Date.now());
+      key = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    }
+    if(!months[key]) months[key] = { amount:0, discount:0 };
+    months[key].amount += Number(e.amount)||0;
+    months[key].discount += Number(e.discount)||0;
+  });
+  return Object.keys(months).sort().map(key => {
+    const m = months[key];
+    const rate = m.amount > 0 ? Math.round((m.discount/m.amount)*1000)/10 : 0;
+    return { ym: key, amount: m.amount, discount: m.discount, rate };
+  });
+}
+
+const SAMSUNG_DISCOUNT_CAP = 15000;
+
+const CONDOLENCE_PATH = 'budget_app/condolenceRecords';
+
+function subscribeCondolenceList(){
+  condolenceListener = onValue(ref(db, CONDOLENCE_PATH), (snap) => {
+    condolenceEntries = snap.exists() ? snap.val() : {};
+    Object.values(condolenceEntries).forEach(e => { if(e && e.sender === '전공의') e.sender = '계대FM'; });
+    renderCondolenceList();
+  });
+}
+
+window.toggleCondolenceEdit = () => {
+  condolenceEditMode = !condolenceEditMode;
+  const btn = document.getElementById('condolence-edit-btn');
+  btn.textContent = condolenceEditMode ? '완료' : '편집';
+  btn.classList.toggle('on', condolenceEditMode);
+  renderCondolenceList();
+};
+
+window.addCondolenceAmount = (delta) => {
+  const input = document.getElementById('condolence-amount');
+  const cur = Number(String(input.value).replace(/[^0-9]/g,'')) || 0;
+  input.value = (cur + delta).toLocaleString('ko-KR');
+};
+window.resetCondolenceAmount = () => { document.getElementById('condolence-amount').value = ''; };
+window.formatCondolenceAmount = () => {
+  const input = document.getElementById('condolence-amount');
+  const n = Number(String(input.value).replace(/[^0-9]/g,'')) || 0;
+  input.value = n ? n.toLocaleString('ko-KR') : '';
+};
+
+window.addCondolenceEntry = () => {
+  const nameInput = document.getElementById('condolence-name');
+  const recipientInput = document.getElementById('condolence-recipient');
+  const senderInput = document.getElementById('condolence-sender');
+  const methodInput = document.getElementById('condolence-method');
+  const amountInput = document.getElementById('condolence-amount');
+
+  const name = nameInput.value.trim();
+  const recipient = recipientInput.value;
+  const sender = senderInput.value;
+  const method = methodInput.value;
+  const digits = String(amountInput.value).replace(/[^0-9]/g,'');
+  const amount = Number(digits) || 0;
+
+  if(!name){ alert('이름/관계를 입력해주세요.'); return; }
+  if(amount <= 0){ alert('금액을 입력해주세요.'); return; }
+
+  push(ref(db, CONDOLENCE_PATH), { name, recipient, sender, method, amount, ts: Date.now() })
+    .then(() => {
+      nameInput.value = '';
+      amountInput.value = '';
+      nameInput.focus();
+    })
+    .catch(er => alert('저장 실패: '+er.message));
+};
+
+
+let condolenceSearchQuery = '';
+window.setCondolenceSearch = (v) => { condolenceSearchQuery = String(v || '').trim().toLowerCase(); renderCondolenceList(); };
+window.clearCondolenceSearch = () => {
+  document.getElementById('condolence-search').value = '';
+  condolenceSearchQuery = '';
+  renderCondolenceList();
+};
+
+function buildCondolenceText(who, entryMap){
+  const all = Object.values(entryMap).sort((a,b) => (a.ts||0)-(b.ts||0));
+  const recipientOrder = ['나','아내','어머니'];
+  const senderOrder = ['대구동산','동신교회','계대FM','베데스다','경대의전','지인','기타'];
+  const methodOrder = ['부의함','계좌이체'];
+  const sum = (arr) => arr.reduce((t,e) => t + (Number(e.amount)||0), 0);
+  const groupBy = (arr, keyFn, order) => {
+    const g = {};
+    arr.forEach(e => { const k = keyFn(e); (g[k] = g[k] || []).push(e); });
+    const keys = [...order.filter(k => g[k]), ...Object.keys(g).filter(k => !order.includes(k))];
+    return keys.map(k => [k, g[k]]);
+  };
+  const line = (e, i) => `${i+1}. ${e.name||''} · ${won(e.amount)}`;
+  const renderSenders = (arr) => groupBy(arr, e => e.sender || '기타', senderOrder).map(([sd, sArr]) => {
+    const subs = groupBy(sArr, e => e.method || '경로 미지정', methodOrder).map(([m, mArr]) =>
+      `    ▸ ${m} ${mArr.length}건 · ${won(sum(mArr))}\n` + mArr.map(line).join('\n')
+    ).join('\n');
+    return `  [${sd}] ${sArr.length}건 · ${won(sum(sArr))}\n${subs}`;
+  }).join('\n');
+  const renderRecipient = (r, arr) => `■ ${r} ${arr.length}건 · ${won(sum(arr))}\n${renderSenders(arr)}`;
+  if(who === '전체'){
+    const body = groupBy(all, e => e.recipient || '나', recipientOrder).map(([r, arr]) => renderRecipient(r, arr)).join('\n\n');
+    return `📔 부조금 명단 (전체)\n총 ${all.length}건 · ${won(sum(all))}\n\n` + (all.length ? body : '내역이 없습니다.');
+  }
+  const arr = all.filter(e => (e.recipient || '나') === who);
+  return `📔 부조금 명단 (${who})\n\n` + (arr.length ? renderRecipient(who, arr) : '내역이 없습니다.');
+}
+
+window.exportCondolence = async (who, mode) => {
+  const text = buildCondolenceText(who, condolenceEntries);
+  if(mode === 'copy'){
+    try{ await navigator.clipboard.writeText(text); alert('복사했어요. 카톡에 붙여넣기 하세요.'); }
+    catch(er){ prompt('아래 내용을 복사하세요', text); }
+    return;
+  }
+  const blob = new Blob(['\uFEFF' + text], { type:'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `부조금_${who === '전체' ? '전체명단' : who}.txt`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+const CONDOLENCE_RECIPIENT_ORDER = ['나','아내','어머니'];
+const CONDOLENCE_SENDER_OPTIONS = ['대구동산','동신교회','계대FM','베데스다','경대의전','지인','기타'];
+const CONDOLENCE_METHOD_OPTIONS = ['부의함','계좌이체'];
+
+function condolenceSelectHTML(cls, options, current){
+  return `<select class="${cls}">` + options.map(o =>
+    `<option value="${escapeHtml(o)}"${o === current ? ' selected' : ''}>${escapeHtml(o)}</option>`
+  ).join('') + `</select>`;
+}
+
+function renderCondolenceList(){
+  const listEl = document.getElementById('condolence-list');
+  const receivedTotalEl = document.getElementById('condolence-received-total');
+  const meTotalEl = document.getElementById('condolence-total-me');
+  const wifeTotalEl = document.getElementById('condolence-total-wife');
+  const motherTotalEl = document.getElementById('condolence-total-mother');
+
+  const entries = Object.entries(condolenceEntries).sort((a,b) => (b[1].ts||0)-(a[1].ts||0));
+
+  const sumBy = (recipient) => entries.filter(([id,e]) => (e.recipient||'나') === recipient).reduce((s,[id,e]) => s + (Number(e.amount)||0), 0);
+  const totalAmount = entries.reduce((s,[id,e]) => s + (Number(e.amount)||0), 0);
+
+  receivedTotalEl.textContent = won(totalAmount);
+  meTotalEl.textContent = won(sumBy('나'));
+  wifeTotalEl.textContent = won(sumBy('아내'));
+  motherTotalEl.textContent = won(sumBy('어머니'));
+
+  const lastTagEl = document.getElementById('condolence-last-entry');
+  if(entries.length > 0){
+    const [, lastE] = entries[0];
+    const t = new Date(lastE.ts || Date.now());
+    const timeStr = t.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+    lastTagEl.innerHTML = `· 마지막 입력 <b>${escapeHtml(lastE.name || '')}</b> (${escapeHtml(lastE.recipient || '나')}) ${timeStr}`;
+  } else {
+    lastTagEl.innerHTML = '';
+  }
+
+  if(entries.length === 0){
+    listEl.innerHTML = '<div class="samsung-empty">아직 등록된 부조금 기록이 없어요. 위에서 추가해보세요.</div>';
+    return;
+  }
+
+  const searchInfoEl = document.getElementById('condolence-search-info');
+  const smsDone = entries.filter(([id,e]) => e.smsSent).length;
+  document.getElementById('condolence-sms-count').textContent = `· 문자 전송 ${smsDone}/${entries.length}건`;
+  const q = condolenceSearchQuery;
+  const listEntries = q ? entries.filter(([id,e]) => {
+    const hay = [e.name, e.sender || '기타', e.recipient || '나', e.method, String(e.amount||0), (Number(e.amount)||0).toLocaleString('ko-KR')].join(' ').toLowerCase();
+    return hay.includes(q);
+  }) : entries;
+  if(q){
+    const found = listEntries.reduce((t,[id,e]) => t + (Number(e.amount)||0), 0);
+    searchInfoEl.textContent = `검색 결과 ${listEntries.length}건 · ${won(found)}`;
+  } else {
+    searchInfoEl.textContent = '';
+  }
+  if(q && listEntries.length === 0){
+    listEl.innerHTML = '<div class="samsung-empty">검색 결과가 없어요.</div>';
+    return;
+  }
+
+  const sumPairs = (pairs) => pairs.reduce((t,[i,e]) => t + (Number(e.amount)||0), 0);
+  const groupPairs = (pairs, keyFn, order) => {
+    const g = {};
+    pairs.forEach(p => { const k = keyFn(p[1]); (g[k] = g[k] || []).push(p); });
+    const keys = [...order.filter(k => g[k]), ...Object.keys(g).filter(k => !order.includes(k))];
+    return keys.map(k => [k, g[k]]);
+  };
+
+  listEl.innerHTML = '';
+  const flatItems = [];
+  groupPairs(listEntries, e => e.recipient || '나', CONDOLENCE_RECIPIENT_ORDER).forEach(([rKey, rPairs]) => {
+    flatItems.push({ hdr:'condolence-group-header', label:'받은 사람: ' + rKey, count:rPairs.length, total:sumPairs(rPairs) });
+    groupPairs(rPairs, e => e.sender || '기타', CONDOLENCE_SENDER_OPTIONS).forEach(([sKey, sPairs]) => {
+      flatItems.push({ hdr:'condolence-sender-header', label:sKey, count:sPairs.length, total:sumPairs(sPairs) });
+      groupPairs(sPairs, e => e.method || '경로 미지정', CONDOLENCE_METHOD_OPTIONS).forEach(([mKey, mPairs]) => {
+        flatItems.push({ hdr:'condolence-sub-header', label:mKey, count:mPairs.length, total:sumPairs(mPairs) });
+        mPairs.forEach(p => flatItems.push(p));
+      });
+    });
+  });
+
+  flatItems.forEach((item) => {
+      if(item.hdr){
+        const hd = document.createElement('div');
+        hd.className = item.hdr;
+        hd.innerHTML = `<span>${escapeHtml(item.label)} (${item.count}건)</span><span>${won(item.total)}</span>`;
+        listEl.appendChild(hd);
+        return;
+      }
+      const [id, e] = item;
+      const row = document.createElement('div');
+      row.className = 'samsung-entry condolence-entry';
+
+      if(condolenceEditMode){
+        row.innerHTML = `
+          <div class="condolence-edit-row">
+            <input class="ce-name" type="text" value="${escapeHtml(e.name || '')}">
+            <div class="ce-edit-bottom">
+              ${condolenceSelectHTML('ce-recipient', CONDOLENCE_RECIPIENT_ORDER, e.recipient || '나')}
+              ${condolenceSelectHTML('ce-sender', CONDOLENCE_SENDER_OPTIONS, e.sender || '기타')}
+              ${condolenceSelectHTML('ce-method', CONDOLENCE_METHOD_OPTIONS, e.method || '부의함')}
+              <input class="ce-amount" type="text" inputmode="numeric" value="${Number(e.amount)||0}">
+            </div>
+          </div>
+          <button class="se-del">✕</button>
+        `;
+        const path = `${CONDOLENCE_PATH}/${id}`;
+        row.querySelector('.ce-name').onblur = (ev) => {
+          const v = ev.target.value.trim();
+          if(v) update(ref(db, path), { name: v }).catch(er => alert('수정 실패: '+er.message));
+        };
+        row.querySelector('.ce-recipient').onchange = (ev) => {
+          update(ref(db, path), { recipient: ev.target.value }).catch(er => alert('수정 실패: '+er.message));
+        };
+        row.querySelector('.ce-sender').onchange = (ev) => {
+          update(ref(db, path), { sender: ev.target.value }).catch(er => alert('수정 실패: '+er.message));
+        };
+        row.querySelector('.ce-method').onchange = (ev) => {
+          update(ref(db, path), { method: ev.target.value }).catch(er => alert('수정 실패: '+er.message));
+        };
+        row.querySelector('.ce-amount').onblur = (ev) => {
+          const digits = String(ev.target.value).replace(/[^0-9]/g,'');
+          const amount = Number(digits) || 0;
+          update(ref(db, path), { amount }).catch(er => alert('수정 실패: '+er.message));
+        };
+        row.querySelector('.se-del').onclick = () => {
+          if(confirm('이 기록을 삭제할까요?')) remove(ref(db, path)).catch(er => alert('삭제 실패: '+er.message));
+        };
+      } else {
+        row.classList.toggle('sms-done', !!e.smsSent);
+        row.innerHTML = `
+          <input type="checkbox" class="ce-sms" title="문자 전송 완료" ${e.smsSent ? 'checked' : ''}>
+          <div class="se-main">
+            <div class="se-label">${escapeHtml(e.name || '')}</div>
+            <div class="se-sub">${escapeHtml(e.sender || '기타')}</div>
+          </div>
+          <div class="ce-amount-big">${won(e.amount)}</div>
+        `;
+        row.querySelector('.ce-sms').onchange = (ev) => {
+          update(ref(db, `${CONDOLENCE_PATH}/${id}`), { smsSent: ev.target.checked }).catch(er => alert('저장 실패: '+er.message));
+        };
+      }
+      listEl.appendChild(row);
+  });
+}
+
+function buildComboChartSVG(data){
+  if(data.length === 0) return '<div class="dash-loading">아직 데이터가 없어요.</div>';
+  const barW = 44, gap = 16, chartH = 240;
+  const bottomPad = 22;
+  // Top band: reserved exclusively for the discount-rate line + its labels + cap stars.
+  const lineDotTop = 26, lineDotBottom = 96;
+  const lineRangeH = lineDotBottom - lineDotTop;
+  // Bottom band: reserved exclusively for bars + amount labels. Kept well clear of the line band above.
+  const barZoneTop = 112, barZoneBottom = chartH - bottomPad;
+  const barPlotH = barZoneBottom - barZoneTop;
+
+  const svgW = data.length * (barW+gap) + gap;
+  const maxAmount = Math.max(...data.map(d => d.amount), 1);
+  const maxRate = Math.max(...data.map(d => d.rate), 1);
+
+  let bars = '', labels = '', dots = '', badges = '';
+  const linePoints = [];
+
+  data.forEach((d, i) => {
+    const x = gap + i*(barW+gap);
+    const h = Math.round((d.amount/maxAmount) * barPlotH);
+    const y = barZoneBottom - h;
+    const capped = (d.discount||0) >= SAMSUNG_DISCOUNT_CAP;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,2)}" rx="6" fill="#5B7FA6"${capped ? ' stroke="#D4A017" stroke-width="2"' : ''}></rect>`;
+    const amtLabel = d.amount ? Math.round(d.amount/10000).toLocaleString('ko-KR')+'만' : '-';
+    labels += `<text x="${x+barW/2}" y="${y-6}" font-size="9.5" text-anchor="middle" fill="#2B2A28">${amtLabel}</text>`;
+    if(capped){
+      badges += `<text x="${x+barW/2}" y="12" font-size="13" text-anchor="middle">⭐</text>`;
+    }
+
+    const cx = x + barW/2;
+    const cy = lineDotBottom - (d.rate/maxRate) * lineRangeH;
+    linePoints.push(`${cx},${cy}`);
+    dots += `<circle cx="${cx}" cy="${cy}" r="3.5" fill="#C4622D"></circle>
+      <text x="${cx}" y="${cy-8}" font-size="9.5" text-anchor="middle" fill="#C4622D" font-weight="700">${d.rate}%</text>`;
+
+    labels += `<text x="${cx}" y="${chartH-4}" font-size="10" text-anchor="middle" fill="#8A8680">${d.ym.slice(2).replace('-','.')}</text>`;
+  });
+
+  const linePath = `<polyline points="${linePoints.join(' ')}" fill="none" stroke="#C4622D" stroke-width="2"></polyline>`;
+  return `<svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 260)}" height="250" style="display:block;">${bars}${linePath}${dots}${labels}${badges}</svg>`;
+}
+
+function buildDiscountChartSVG(data){
+  if(data.length === 0) return '<div class="dash-loading">아직 데이터가 없어요.</div>';
+  const barW = 44, gap = 16, chartH = 190;
+  const topPad = 26, bottomPad = 22;
+  const plotH = chartH - topPad - bottomPad;
+  const svgW = data.length * (barW+gap) + gap;
+  const scaleMax = Math.max(...data.map(d => d.discount), SAMSUNG_DISCOUNT_CAP) * 1.15;
+
+  let bars = '', labels = '';
+  data.forEach((d, i) => {
+    const x = gap + i*(barW+gap);
+    const h = Math.round(((d.discount||0)/scaleMax) * plotH);
+    const y = chartH - bottomPad - h;
+    const capped = (d.discount||0) >= SAMSUNG_DISCOUNT_CAP;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,2)}" rx="6" fill="${capped ? '#D4A017' : '#C4622D'}"></rect>`;
+    const label = d.discount ? won(d.discount) : '-';
+    labels += `<text x="${x+barW/2}" y="${y-6}" font-size="9.5" text-anchor="middle" fill="#2B2A28">${label}${capped ? ' ⭐' : ''}</text>`;
+    labels += `<text x="${x+barW/2}" y="${chartH-4}" font-size="10" text-anchor="middle" fill="#8A8680">${d.ym.slice(2).replace('-','.')}</text>`;
+  });
+
+  const capY = chartH - bottomPad - (SAMSUNG_DISCOUNT_CAP/scaleMax) * plotH;
+  const capLine = `<line x1="0" y1="${capY}" x2="${svgW}" y2="${capY}" stroke="#D4A017" stroke-width="1.5" stroke-dasharray="4,3"></line>
+    <text x="4" y="${capY-4}" font-size="10" fill="#D4A017" font-weight="700">한도 15,000원</text>`;
+
+  return `<svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 260)}" height="200" style="display:block;">${bars}${capLine}${labels}</svg>`;
+}
+
+function renderSamsungTrends(){
+  const monthly = computeSamsungMonthly();
+  document.getElementById('samsung-amount-chart').innerHTML = buildComboChartSVG(monthly);
+  document.getElementById('samsung-discount-chart').innerHTML = buildDiscountChartSVG(monthly);
+}
+
+async function extractOneSamsungImage(file, apiKey){
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } },
+          { type: 'text', text: '이 이미지는 카드 사용내역/영수증이거나 카드사 앱 화면(예: 삼성카드 앱의 이용내역·청구할인 화면)입니다. 화면에 숫자가 여러 개 있을 수 있으니 주의해서 구분하세요: "amount"는 반드시 "이용금액"이라고 표시된 실제 사용(결제) 금액이고, 상단 요약으로 보이는 "총 N건 OOO원"이나 "청구할인/캐시백/포인트" 요약 숫자를 amount로 쓰면 안 됩니다. "discount"는 할인/청구할인/캐시백/포인트 등으로 표시된 금액입니다(없으면 0). 가맹점명이나 항목명이 있으면 label로 사용하세요. 이용일자(결제일)가 화면에 보이면 YYYY-MM-DD 형식으로 date에 넣으세요(연도가 안 보이면 지금 연도로 추정, 날짜 자체가 전혀 안 보이면 date는 null). 오직 JSON 형식으로만 응답하고 다른 설명은 하지 마세요. 형식: {"label":"가맹점명 또는 항목명(모르면 \\"사용내역\\")","amount":숫자(원 단위, "이용금액" 실제 결제금액),"discount":숫자(할인액, 없으면 0),"date":"YYYY-MM-DD 또는 null"}' }
+        ]
+      }]
+    })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message || 'API 오류');
+  const textBlock = (data.content||[]).find(c => c.type === 'text');
+  if(!textBlock) throw new Error('응답에서 텍스트를 찾지 못했어요');
+  const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  const amount = Number(parsed.amount) || 0;
+  const discount = Number(parsed.discount) || 0;
+  const discountRate = (amount > 0 && discount > 0) ? Math.round((discount/amount)*100) : 0;
+  const dateMatch = typeof parsed.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : null;
+  return { label: parsed.label || '사용내역', amount, discount, discountRate, ts: Date.now(), ym: currentYm, date: dateMatch };
+}
+
+window.cleanupSamsungDuplicates = () => {
+  const groups = {};
+  Object.entries(samsungEntries).forEach(([id, e]) => {
+    const key = `${Number(e.amount)||0}_${Number(e.discount)||0}_${e.ym||''}`;
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(id);
+  });
+  const toDelete = [];
+  Object.values(groups).forEach(ids => {
+    if(ids.length > 1) toDelete.push(...ids.slice(1)); // keep the first, remove the rest
+  });
+  if(toDelete.length === 0){ alert('중복으로 보이는 내역이 없어요.'); return; }
+  if(!confirm(`같은 금액·할인액·달로 겹치는 내역 ${toDelete.length}건을 삭제할까요? (그룹마다 1건만 남기고 나머지를 지워요)`)) return;
+  const updates = {};
+  toDelete.forEach(id => { updates[id] = null; });
+  update(ref(db, SAMSUNG_PATH), updates)
+    .then(() => showToast(`중복 내역 ${toDelete.length}건을 정리했어요`))
+    .catch(e => alert('정리 실패: ' + e.message));
+};
+
+function findSamsungDuplicate(entry){
+  return Object.values(samsungEntries).find(e =>
+    Number(e.amount) === entry.amount &&
+    Number(e.discount||0) === entry.discount &&
+    e.ym === entry.ym
+  );
+}
+
+window.extractSamsungUsage = async (input) => {
+  const files = Array.from(input.files || []);
+  if(files.length === 0) return;
+  const apiKey = document.getElementById('samsung-api-key').value.trim();
+  const statusEl = document.getElementById('samsung-status');
+  if(!apiKey){ alert('API 키를 먼저 입력해주세요'); return; }
+
+  let done = 0, failed = 0, skipped = 0;
+  for(const file of files){
+    statusEl.textContent = `${files.length}장 중 ${done+failed+skipped+1}번째 읽는 중...`;
+    try{
+      const entry = await extractOneSamsungImage(file, apiKey);
+      const dup = findSamsungDuplicate(entry);
+      if(dup){
+        const addAnyway = confirm(
+          `이미 등록된 것과 같은 내역으로 보여요.\n\n이번에 읽은 내용: ${entry.label} · ${won(entry.amount)} (할인 ${won(entry.discount)}) · ${ymLabel(entry.ym)}\n\n확인: 그래도 추가할게요 (진짜 다른 영수증인 경우)\n취소: 중복이니 건너뛸게요`
+        );
+        if(!addAnyway){ skipped++; continue; }
+      }
+      const newRef = push(ref(db, SAMSUNG_PATH));
+      await set(newRef, entry);
+      samsungEntries[newRef.key] = entry; // keep local copy in sync for subsequent duplicate checks in this same batch
+      done++;
+    } catch(err){
+      failed++;
+      console.error(err);
+    }
+  }
+  const parts = [`${done}장 등록 완료`];
+  if(skipped > 0) parts.push(`${skipped}장 중복으로 건너뜀`);
+  if(failed > 0) parts.push(`${failed}장 실패`);
+  statusEl.textContent = parts.join(', ');
+  input.value = '';
+};
+
+function renderEmpty(ym){
+  document.getElementById('empty-state').style.display = 'block';
+  document.getElementById('categories-container').innerHTML = '';
+  document.getElementById('tabs-area').style.display = 'none';
+  document.getElementById('new-cat-btn').style.display = 'none';
+  const priorMonths = availableMonths.filter(m => m < ym);
+  const btn = document.getElementById('create-month-btn');
+  if(priorMonths.length){
+    document.getElementById('empty-text').textContent = `이 달의 가계부가 아직 없어요. ${priorMonths[priorMonths.length-1]} 데이터를 기준으로 만들까요? (고정 항목은 그대로, 변동 항목은 비워서 시작해요)`;
+    btn.textContent = "이 달 만들기";
+    btn.onclick = () => createCurrentMonth(priorMonths[priorMonths.length-1]);
+  } else {
+    document.getElementById('empty-text').textContent = "아직 가계부 데이터가 없어요. 빈 달로 시작할게요.";
+    btn.textContent = "빈 달로 시작하기";
+    btn.onclick = () => createCurrentMonth(null);
+  }
+}
+
+window.createCurrentMonth = async (sourceYm) => {
+  try{
+    const updates = {};
+    if(sourceYm){
+      const snap = await get(ref(db, `${ROOT}/${sourceYm}`));
+      const src = snap.exists() ? snap.val() : {};
+      Object.entries(src).forEach(([id, item]) => {
+        if(item.type === 'fixed' || item.type === 'expected' || item.type === 'asset'){
+          if((item.type === 'expected' || item.type === 'asset') && item.recurring === false) return;
+          updates[id] = { ...item, amount: item.amount || 0 };
+        } else if(item.recurring !== false){
+          updates[id] = { ...item, amount: 0 };
+        }
+      });
+    }
+    if(Object.keys(updates).length === 0){
+      updates['__init__'] = { category:'고정지출', name:'첫 항목을 추가해주세요', note:'', type:'fixed', amount:0, order:10 };
+    }
+    await set(ref(db, `${ROOT}/${currentYm}`), updates);
+    showToast("이 달 가계부를 만들었어요");
+  } catch(e){
+    alert("저장 실패: " + e.message + "\n\nFirebase 콘솔 > Realtime Database > 규칙(Rules)에서 budget_app 경로에 인증된 사용자 읽기/쓰기 권한이 있는지 확인해주세요.");
+  }
+};
+
+function renderMonth(){
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('tabs-area').style.display = 'block';
+  document.getElementById('new-cat-btn').style.display = 'block';
+
+  const allEntries = Object.entries(currentData);
+
+  let fixedSum=0, variableSum=0, incomeSum=0, expectedSum=0, assetSum=0;
+  allEntries.forEach(([id, item]) => {
+    if(item.type === 'variable') variableSum += Number(item.amount)||0;
+    else if(item.type === 'income') incomeSum += Number(item.amount)||0;
+    else if(item.type === 'expected') expectedSum += Number(item.amount)||0;
+    else if(item.type === 'asset') assetSum += Number(item.amount)||0;
+    else fixedSum += Number(item.amount)||0;
+  });
+  document.getElementById('tab-income-total').textContent = won(incomeSum);
+  document.getElementById('tab-fixed-total').textContent = won(fixedSum);
+  document.getElementById('tab-variable-total').textContent = won(variableSum);
+  document.getElementById('tab-expected-total').textContent = won(expectedSum);
+  document.getElementById('tab-asset-total').textContent = won(assetSum);
+  document.getElementById('tab-net-total').textContent = won(incomeSum - (fixedSum+variableSum));
+  document.getElementById('grand-total').textContent = won(fixedSum+variableSum);
+  document.getElementById('tab-income').classList.toggle('active', activeTab==='income');
+  document.getElementById('tab-fixed').classList.toggle('active', activeTab==='fixed');
+  document.getElementById('tab-variable').classList.toggle('active', activeTab==='variable');
+  document.getElementById('tab-expected').classList.toggle('active', activeTab==='expected');
+  document.getElementById('tab-asset').classList.toggle('active', activeTab==='asset');
+  document.getElementById('tab-net').classList.toggle('active', activeTab==='net');
+
+  if(activeTab === 'net'){
+    document.getElementById('new-cat-btn').style.display = 'none';
+    document.getElementById('new-cat-form').classList.remove('open');
+    currentVisibleIds = [];
+    const netSum = incomeSum - (fixedSum + variableSum);
+    const container = document.getElementById('categories-container');
+    container.innerHTML = `
+      <div class="category-block" style="padding:20px 18px;">
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; justify-content:space-between; font-size:14px; color:var(--sub);">
+            <span>수입</span><span style="font-weight:700; color:var(--ink);">${won(incomeSum)}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:14px; color:var(--sub);">
+            <span>총 지출 (고정+변동)</span><span style="font-weight:700; color:var(--ink);">${won(fixedSum+variableSum)}</span>
+          </div>
+          <div style="border-top:1px solid var(--line); margin:4px 0;"></div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-weight:800; font-size:15px;">순이익</span>
+            <span style="font-weight:900; font-size:22px; color:${netSum>=0?'var(--accent)':'var(--danger)'};">${won(netSum)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+    updateBulkBar();
+    return;
+  }
+
+  const entries = allEntries.filter(([id,item]) => (item.type||'fixed') === activeTab);
+  currentVisibleIds = entries.map(([id]) => id);
+  const categories = {};
+  entries.forEach(([id, item]) => {
+    const cat = item.category || '미분류';
+    if(!categories[cat]) categories[cat] = [];
+    categories[cat].push({id, ...item});
+  });
+  Object.values(categories).forEach(list => list.sort((a,b)=>(a.order||0)-(b.order||0)));
+  const catNames = Object.keys(categories).sort((a,b)=>{
+    const oa = Math.min(...categories[a].map(i=>i.order||0));
+    const ob = Math.min(...categories[b].map(i=>i.order||0));
+    return oa-ob;
+  });
+
+  const allCatNames = [...new Set(allEntries.map(([id,it]) => it.category).filter(Boolean))].sort();
+  const datalist = document.getElementById('existing-categories');
+  datalist.innerHTML = allCatNames.map(c => `<option value="${escapeHtml(c)}">`).join('');
+
+  const container = document.getElementById('categories-container');
+  container.innerHTML = '';
+
+  if(catNames.length === 0){
+    const p = document.createElement('div');
+    p.style.cssText = 'text-align:center;color:var(--sub);font-size:13px;padding:20px 0;';
+    p.textContent = activeTab === 'income' ? '수입 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : activeTab === 'expected' ? '향후예상수입 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : activeTab === 'asset' ? '자산현황 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : (activeTab === 'fixed' ? '고정지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.' : '변동지출 항목이 없어요. 아래에서 새 카테고리를 추가해보세요.');
+    container.appendChild(p);
+  }
+
+  catNames.forEach(cat => {
+    const items = categories[cat];
+    const catTotal = items.reduce((s,i)=>s+(Number(i.amount)||0),0);
+    const block = document.createElement('div');
+    block.className = 'category-block';
+
+    const head = document.createElement('div');
+    head.className = 'category-head';
+    head.style.setProperty('--cat-color', catColor(cat));
+
+    const nameEl = document.createElement('input');
+    nameEl.className = 'name';
+    nameEl.value = cat;
+    nameEl.readOnly = !editMode;
+    nameEl.onblur = () => {
+      if(nameEl.value.trim() && nameEl.value.trim() !== cat) renameCategory(cat, nameEl.value.trim());
+    };
+    head.appendChild(nameEl);
+
+    const totalEl = document.createElement('div');
+    totalEl.className = 'total';
+    totalEl.textContent = won(catTotal);
+    head.appendChild(totalEl);
+
+    if(editMode){
+      const catMoveCol = document.createElement('div');
+      catMoveCol.className = 'move-col';
+      catMoveCol.style.marginLeft = '8px';
+      const catUpBtn = document.createElement('button');
+      catUpBtn.className = 'move-btn';
+      catUpBtn.textContent = '▲';
+      catUpBtn.title = '카테고리 위로 이동';
+      catUpBtn.onclick = () => moveCategory(cat, -1);
+      const catDownBtn = document.createElement('button');
+      catDownBtn.className = 'move-btn';
+      catDownBtn.textContent = '▼';
+      catDownBtn.title = '카테고리 아래로 이동';
+      catDownBtn.onclick = () => moveCategory(cat, 1);
+      catMoveCol.appendChild(catUpBtn);
+      catMoveCol.appendChild(catDownBtn);
+      head.appendChild(catMoveCol);
+
+      head.addEventListener('dragover', (e)=> e.preventDefault());
+      head.addEventListener('drop', (e)=>{ e.preventDefault(); if(dragItemId) dropAtEnd(dragItemId, cat); });
+    }
+
+    block.appendChild(head);
+
+    items.forEach(item => {
+      block.appendChild(buildItemRow(item));
+    });
+
+    const addRow = document.createElement('div');
+    addRow.className = 'add-item-row';
+    if(editMode){
+      addRow.addEventListener('dragover', (e)=> e.preventDefault());
+      addRow.addEventListener('drop', (e)=>{ e.preventDefault(); if(dragItemId) dropAtEnd(dragItemId, cat); });
+    }
+    const addBtn = document.createElement('button');
+    addBtn.className = 'ghost-btn';
+    addBtn.textContent = '+ 항목 추가';
+    addBtn.onclick = () => openInlineAdd(cat, addRow, addBtn);
+    addRow.appendChild(addBtn);
+    block.appendChild(addRow);
+
+    container.appendChild(block);
+  });
+
+  selectedIds.forEach(id => { if(!currentVisibleIds.includes(id)) selectedIds.delete(id); });
+  updateBulkBar();
+  if(activeTab === 'variable') refreshDashButtonLabel();
+}
+
+function updateBulkBar(){
+  const btn = document.getElementById('bulk-delete-btn');
+  const selectAllCb = document.getElementById('select-all-cb');
+  btn.textContent = `선택 삭제 (${selectedIds.size})`;
+  btn.disabled = selectedIds.size === 0;
+  selectAllCb.checked = currentVisibleIds.length > 0 && currentVisibleIds.every(id => selectedIds.has(id));
+}
+
+window.toggleSelectAll = (checked) => {
+  if(checked){ currentVisibleIds.forEach(id => selectedIds.add(id)); }
+  else { currentVisibleIds.forEach(id => selectedIds.delete(id)); }
+  renderMonth();
+};
+
+window.deleteSelected = () => {
+  if(selectedIds.size === 0) return;
+  if(!confirm(`선택한 ${selectedIds.size}개 항목을 삭제할까요? (이번 달에서만 삭제돼요)`)) return;
+  const updates = {};
+  selectedIds.forEach(id => { updates[id] = null; });
+  update(ref(db, `${ROOT}/${currentYm}`), updates)
+    .then(() => { selectedIds.clear(); showToast('선택한 항목을 삭제했어요'); })
+    .catch(e => alert("삭제 실패: " + e.message));
+};
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function buildItemRow(item){
+  const row = document.createElement('div');
+  row.className = 'item-row' + (item.type === 'variable' && !item.amount ? ' needs-input' : '');
+
+  if(editMode){
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'item-check';
+    cb.checked = selectedIds.has(item.id);
+    cb.onchange = () => {
+      if(cb.checked) selectedIds.add(item.id); else selectedIds.delete(item.id);
+      updateBulkBar();
+    };
+    row.appendChild(cb);
+
+    const handle = document.createElement('div');
+    handle.className = 'drag-handle';
+    handle.textContent = '⋮⋮';
+    row.appendChild(handle);
+    row.draggable = true;
+    row.addEventListener('dragstart', () => { dragItemId = item.id; });
+    row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if(dragItemId && dragItemId !== item.id) dropOnItem(dragItemId, item);
+    });
+
+    const moveCol = document.createElement('div');
+    moveCol.className = 'move-col';
+    const upBtn = document.createElement('button');
+    upBtn.className = 'move-btn';
+    upBtn.textContent = '▲';
+    upBtn.onclick = () => moveItem(item.id, -1);
+    const downBtn = document.createElement('button');
+    downBtn.className = 'move-btn';
+    downBtn.textContent = '▼';
+    downBtn.onclick = () => moveItem(item.id, 1);
+    moveCol.appendChild(upBtn);
+    moveCol.appendChild(downBtn);
+    row.appendChild(moveCol);
+
+    const catMoveBtn = document.createElement('button');
+    catMoveBtn.className = 'cat-move-btn';
+    catMoveBtn.type = 'button';
+    catMoveBtn.title = '다른 카테고리로 이동';
+    catMoveBtn.textContent = '📁';
+    catMoveBtn.onclick = () => {
+      const catList = [...new Set(
+        Object.values(currentData)
+          .filter(it => (it.type||'fixed') === activeTab)
+          .map(it => it.category || '미분류')
+      )];
+      const newCat = prompt(
+        `옮길 카테고리명을 입력해주세요.\n(현재 이 탭의 카테고리: ${catList.join(', ')})`,
+        item.category || ''
+      );
+      if(newCat === null) return;
+      const trimmed = newCat.trim();
+      if(!trimmed || trimmed === item.category) return;
+      dropAtEnd(item.id, trimmed);
+    };
+    row.appendChild(catMoveBtn);
+  }
+
+  const main = document.createElement('div');
+  main.className = 'main';
+
+  const nameInput = document.createElement('input');
+  nameInput.className = 'name-input';
+  nameInput.value = item.name || '';
+  nameInput.onblur = () => updateField(item.id, 'name', nameInput.value);
+  main.appendChild(nameInput);
+
+  const noteInput = document.createElement('input');
+  noteInput.className = 'note-input';
+  noteInput.placeholder = '비고 (예: 12일)';
+  noteInput.value = item.note || '';
+  noteInput.onblur = () => updateField(item.id, 'note', noteInput.value);
+  main.appendChild(noteInput);
+
+  if(item.type === 'expected' && item.category !== '평생연금'){
+    const hasCalc = !!(item.principal || item.payoutYears);
+    const calcToggle = document.createElement('button');
+    calcToggle.className = 'pension-toggle';
+    calcToggle.type = 'button';
+    calcToggle.textContent = hasCalc ? '🧮 분할계산 (열림/닫힘)' : '🧮 분할 수령 계산기';
+    main.appendChild(calcToggle);
+
+    const calcRow = document.createElement('div');
+    calcRow.className = 'pension-row';
+    calcRow.style.display = hasCalc ? 'flex' : 'none';
+
+    const principalInput = document.createElement('input');
+    principalInput.className = 'pension-input';
+    principalInput.type = 'text';
+    principalInput.placeholder = '총 수령액(원)';
+    principalInput.value = item.principal ? Number(item.principal).toLocaleString('ko-KR') : '';
+    principalInput.onfocus = () => { principalInput.value = item.principal || ''; };
+    principalInput.onblur = () => {
+      const raw = Number(String(principalInput.value).replace(/[^0-9]/g,'')) || 0;
+      principalInput.value = raw ? raw.toLocaleString('ko-KR') : '';
+      updateField(item.id, 'principal', raw);
+      maybeRecalcPension(item.id, raw, item.payoutYears);
+    };
+
+    const yearsInput = document.createElement('input');
+    yearsInput.className = 'pension-input small';
+    yearsInput.type = 'number';
+    yearsInput.placeholder = '분할연수(년)';
+    yearsInput.value = item.payoutYears || '';
+    yearsInput.onblur = () => {
+      const yrs = Number(yearsInput.value) || 0;
+      updateField(item.id, 'payoutYears', yrs);
+      maybeRecalcPension(item.id, item.principal, yrs);
+    };
+
+    calcRow.appendChild(principalInput);
+    calcRow.appendChild(yearsInput);
+    main.appendChild(calcRow);
+
+    calcToggle.onclick = () => {
+      calcRow.style.display = calcRow.style.display === 'none' ? 'flex' : 'none';
+    };
+  }
+
+  if(item.type === 'asset' && Number(item.amount) < 0){
+    const hasRate = !!item.interestRate;
+    const rateToggle = document.createElement('button');
+    rateToggle.className = 'pension-toggle';
+    rateToggle.type = 'button';
+    rateToggle.textContent = hasRate ? `🧮 이율 ${item.interestRate}% (열림/닫힘)` : '🧮 이율 계산기';
+    main.appendChild(rateToggle);
+
+    const rateRow = document.createElement('div');
+    rateRow.className = 'pension-row';
+    rateRow.style.display = hasRate ? 'flex' : 'none';
+
+    const rateInput = document.createElement('input');
+    rateInput.className = 'pension-input small';
+    rateInput.type = 'number';
+    rateInput.step = '0.01';
+    rateInput.placeholder = '연이율(%)';
+    rateInput.value = item.interestRate || '';
+    rateInput.onblur = () => {
+      const rate = Number(rateInput.value) || 0;
+      updateField(item.id, 'interestRate', rate);
+    };
+
+    rateRow.appendChild(rateInput);
+    main.appendChild(rateRow);
+
+    rateToggle.onclick = () => {
+      rateRow.style.display = rateRow.style.display === 'none' ? 'flex' : 'none';
+    };
+
+    if(item.interestRate){
+      const monthlyInterest = Math.round(Math.abs(Number(item.amount)) * (item.interestRate/100) / 12);
+      const interestNote = document.createElement('div');
+      interestNote.className = 'interest-note';
+      interestNote.textContent = `월 이자 약 ${monthlyInterest.toLocaleString('ko-KR')}원`;
+      main.appendChild(interestNote);
+    }
+  }
+
+  row.appendChild(main);
+
+  if(item.type !== 'income' && item.type !== 'expected' && item.type !== 'asset'){
+    const typeChip = document.createElement('button');
+    typeChip.className = 'type-chip ' + (item.type === 'variable' ? 'variable' : 'fixed');
+    typeChip.textContent = item.type === 'variable' ? '변동' : '고정';
+    typeChip.title = '클릭하면 고정/변동 탭 간 이동';
+    typeChip.onclick = () => {
+      const newType = item.type === 'variable' ? 'fixed' : 'variable';
+      updateField(item.id, 'type', newType);
+    };
+    row.appendChild(typeChip);
+  }
+
+  if(item.type !== 'fixed'){
+    const isRecurring = item.recurring !== false;
+    const recChip = document.createElement('button');
+    recChip.className = 'type-chip ' + (isRecurring ? 'fixed' : 'variable');
+    recChip.textContent = isRecurring ? '반복' : '1회성';
+    recChip.title = '다음 달에도 이 항목이 자동으로 나타나게 할지 (반복) / 이번 달만 나타나고 다음 달엔 사라지게 할지 (1회성)';
+    recChip.onclick = () => {
+      updateField(item.id, 'recurring', !isRecurring);
+    };
+    row.appendChild(recChip);
+  }
+
+  const isPensionComputed = !!(item.principal && item.payoutYears);
+  const amountInput = document.createElement('input');
+  amountInput.className = 'amount-input' + (isPensionComputed ? ' computed' : '');
+  amountInput.type = 'text';
+  amountInput.value = item.amount ? Number(item.amount).toLocaleString('ko-KR') : '';
+  amountInput.placeholder = '0';
+  if(isPensionComputed){
+    amountInput.readOnly = true;
+    amountInput.title = '총 수령액 ÷ (분할연수 × 12)로 자동 계산된 월 수령액이에요';
+  } else {
+    amountInput.onfocus = () => { amountInput.value = item.amount || ''; };
+    amountInput.onblur = () => {
+      const str = String(amountInput.value).trim();
+      const isNeg = str.startsWith('-');
+      const digits = str.replace(/[^0-9]/g,'');
+      const raw = (isNeg ? -1 : 1) * (Number(digits) || 0);
+      amountInput.value = raw.toLocaleString('ko-KR');
+      updateField(item.id, 'amount', raw);
+    };
+  }
+  row.appendChild(amountInput);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn';
+  delBtn.textContent = '✕';
+  delBtn.onclick = () => {
+    if(confirm(`"${item.name}" 항목을 삭제할까요? (이번 달에서만 삭제돼요)`)){
+      remove(ref(db, `${ROOT}/${currentYm}/${item.id}`)).catch(e => alert("삭제 실패: " + e.message));
+    }
+  };
+  row.appendChild(delBtn);
+
+  return row;
+}
+
+function updateField(itemId, field, value){
+  update(ref(db, `${ROOT}/${currentYm}/${itemId}`), { [field]: value })
+    .catch(e => alert("저장 실패: " + e.message));
+}
+
+function maybeRecalcPension(itemId, principal, payoutYears){
+  const p = Number(principal) || 0;
+  const y = Number(payoutYears) || 0;
+  if(p > 0 && y > 0){
+    const monthly = Math.round(p / (y * 12));
+    updateField(itemId, 'amount', monthly);
+  }
+}
+
+async function renameCategory(oldName, newName){
+  const applyAll = confirm(`'${oldName}' 카테고리를 이 앱에 있는 모든 달에서 '${newName}'(으)로 바꿀까요?\n\n확인: 모든 달에 적용\n취소: 이번 달에만 적용`);
+  try{
+    if(applyAll){
+      for(const ym of availableMonths){
+        const snap = await get(ref(db, `${ROOT}/${ym}`));
+        if(!snap.exists()) continue;
+        const data = snap.val();
+        const updates = {};
+        Object.entries(data).forEach(([id, it]) => {
+          if(it.category === oldName) updates[`${id}/category`] = newName;
+        });
+        if(Object.keys(updates).length) await update(ref(db, `${ROOT}/${ym}`), updates);
+      }
+    } else {
+      const updates = {};
+      Object.entries(currentData).forEach(([id, it]) => {
+        if(it.category === oldName) updates[`${id}/category`] = newName;
+      });
+      if(Object.keys(updates).length) await update(ref(db, `${ROOT}/${currentYm}`), updates);
+    }
+    showToast('카테고리 이름을 바꿨어요');
+  } catch(e){
+    alert("이름 변경 실패: " + e.message);
+  }
+}
+
+window.moveCategory = (catName, direction) => {
+  const entries = Object.entries(currentData).filter(([id, item]) => (item.type||'fixed') === activeTab);
+  const categories = {};
+  entries.forEach(([id, item]) => {
+    const cat = item.category || '미분류';
+    if(!categories[cat]) categories[cat] = [];
+    categories[cat].push({ id, ...item });
+  });
+  Object.values(categories).forEach(list => list.sort((a,b) => (a.order||0)-(b.order||0)));
+  const catNames = Object.keys(categories).sort((a,b) => {
+    const oa = Math.min(...categories[a].map(i => i.order||0));
+    const ob = Math.min(...categories[b].map(i => i.order||0));
+    return oa-ob;
+  });
+  const idx = catNames.indexOf(catName);
+  const target = idx + direction;
+  if(idx === -1 || target < 0 || target >= catNames.length) return;
+  [catNames[idx], catNames[target]] = [catNames[target], catNames[idx]];
+
+  const updates = {};
+  let counter = 0;
+  catNames.forEach(cat => {
+    categories[cat].forEach(item => {
+      updates[`${item.id}/order`] = counter * 10;
+      counter++;
+    });
+  });
+  update(ref(db, `${ROOT}/${currentYm}`), updates).catch(e => alert("카테고리 순서 변경 실패: " + e.message));
+};
+
+function moveItem(itemId, direction){
+  const item = currentData[itemId];
+  if(!item) return;
+  const list = Object.entries(currentData)
+    .filter(([id, it]) => it.category === item.category && (it.type||'fixed') === (item.type||'fixed'))
+    .sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  const idx = list.findIndex(([id]) => id === itemId);
+  const swapIdx = idx + direction;
+  if(swapIdx < 0 || swapIdx >= list.length) return;
+  const [idA, itemA] = list[idx];
+  const [idB, itemB] = list[swapIdx];
+  const updates = {};
+  updates[`${idA}/order`] = itemB.order || 0;
+  updates[`${idB}/order`] = itemA.order || 0;
+  update(ref(db, `${ROOT}/${currentYm}`), updates).catch(e => alert("순서 변경 실패: " + e.message));
+}
+
+function dropOnItem(draggedId, targetItem){
+  const dragged = currentData[draggedId];
+  if(!dragged) return;
+  const targetCategory = targetItem.category;
+  const list = Object.entries(currentData)
+    .filter(([id, it]) => it.category === targetCategory && id !== draggedId)
+    .sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  const targetIndex = list.findIndex(([id]) => id === targetItem.id);
+  list.splice(targetIndex, 0, [draggedId, dragged]);
+  const updates = {};
+  list.forEach(([id], idx) => { updates[`${id}/order`] = (idx+1)*10; });
+  updates[`${draggedId}/category`] = targetCategory;
+  update(ref(db, `${ROOT}/${currentYm}`), updates).catch(e => alert("이동 실패: " + e.message));
+}
+
+function dropAtEnd(draggedId, targetCategory){
+  const dragged = currentData[draggedId];
+  if(!dragged) return;
+  const list = Object.entries(currentData)
+    .filter(([id, it]) => it.category === targetCategory && id !== draggedId)
+    .sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  const updates = {};
+  list.forEach(([id], idx) => { updates[`${id}/order`] = (idx+1)*10; });
+  updates[`${draggedId}/order`] = (list.length+1)*10;
+  updates[`${draggedId}/category`] = targetCategory;
+  update(ref(db, `${ROOT}/${currentYm}`), updates).catch(e => alert("이동 실패: " + e.message));
+}
+
+function openInlineAdd(category, container, triggerBtn){
+  if(container.querySelector('.add-form')){
+    container.querySelector('.add-form').remove();
+    return;
+  }
+  const form = document.createElement('div');
+  form.className = 'add-form open';
+  form.style.marginTop = '8px';
+  form.innerHTML = `
+    <input type="text" placeholder="항목명" class="f-name">
+    <input type="text" placeholder="비고 (선택)" class="f-note">
+    <input type="number" placeholder="금액" class="f-amount">
+    <div class="actions">
+      <button class="cancel">취소</button>
+      <button class="save">추가</button>
+    </div>
+  `;
+  form.querySelector('.cancel').onclick = () => form.remove();
+  form.querySelector('.save').onclick = async () => {
+    const name = form.querySelector('.f-name').value.trim();
+    if(!name){ alert('항목명을 입력해주세요'); return; }
+    const note = form.querySelector('.f-note').value.trim();
+    const amount = Number(form.querySelector('.f-amount').value) || 0;
+    try{
+      const newRef = push(ref(db, `${ROOT}/${currentYm}`));
+      await set(newRef, { category, name, note, type: activeTab, amount, order: Date.now() });
+      form.remove();
+      showToast('항목을 추가했어요');
+    } catch(e){
+      alert("저장 실패: " + e.message);
+    }
+  };
+  container.insertBefore(form, triggerBtn.nextSibling);
+}
+
+window.toggleNewCatForm = () => {
+  document.getElementById('new-cat-form').classList.toggle('open');
+};
+
+window.submitNewCategory = async () => {
+  const category = document.getElementById('nc-category').value.trim();
+  const name = document.getElementById('nc-name').value.trim();
+  const note = document.getElementById('nc-note').value.trim();
+  const amount = Number(document.getElementById('nc-amount').value) || 0;
+  if(!category || !name){ alert('카테고리명과 항목명을 입력해주세요'); return; }
+  try{
+    const newRef = push(ref(db, `${ROOT}/${currentYm}`));
+    await set(newRef, { category, name, note, type: activeTab, amount, order: Date.now() });
+    ['nc-category','nc-name','nc-note','nc-amount'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-cat-form').classList.remove('open');
+    showToast('새 카테고리를 추가했어요');
+  } catch(e){
+    alert("저장 실패: " + e.message);
+  }
+};

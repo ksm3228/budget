@@ -32,6 +32,9 @@ let selectedIds = new Set();
 let activeDashboard = null; // null | 'card' | 'samsung'
 let samsungListener = null;
 let condolenceListener = null;
+let memoListener = null;
+let memoNotes = {};
+let memoSelectedId = null;
 let condolenceEntries = {};
 let condolenceEditMode = false;
 let samsungEntries = {};
@@ -232,10 +235,12 @@ window.toggleDashboard = async (which) => {
   document.getElementById('samsung-toggle-btn').classList.toggle('active', activeDashboard === 'samsung');
   document.getElementById('donation-toggle-btn').classList.toggle('active', activeDashboard === 'donation');
   document.getElementById('condolence-toggle-btn').classList.toggle('active', activeDashboard === 'condolence');
+  document.getElementById('memo-toggle-btn').classList.toggle('active', activeDashboard === 'memo');
   document.getElementById('dashboard-view').style.display = activeDashboard === 'card' ? 'block' : 'none';
   document.getElementById('samsung-view').style.display = activeDashboard === 'samsung' ? 'block' : 'none';
   document.getElementById('donation-view').style.display = activeDashboard === 'donation' ? 'block' : 'none';
   document.getElementById('condolence-view').style.display = activeDashboard === 'condolence' ? 'block' : 'none';
+  document.getElementById('memo-view').style.display = activeDashboard === 'memo' ? 'block' : 'none';
   document.getElementById('tabs-area').style.display = activeDashboard ? 'none' : 'block';
   document.getElementById('categories-container').style.display = activeDashboard ? 'none' : 'block';
   document.getElementById('new-cat-btn').style.display = activeDashboard ? 'none' : 'block';
@@ -243,6 +248,7 @@ window.toggleDashboard = async (which) => {
 
   if(samsungListener){ samsungListener(); samsungListener = null; }
   if(condolenceListener){ condolenceListener(); condolenceListener = null; }
+  if(memoListener){ memoListener(); memoListener = null; }
 
   if(activeDashboard === 'card'){
     await renderDashboard();
@@ -252,6 +258,8 @@ window.toggleDashboard = async (which) => {
     await renderDonationDashboard();
   } else if(activeDashboard === 'condolence'){
     subscribeCondolenceList();
+  } else if(activeDashboard === 'memo'){
+    subscribeMemo();
   } else {
     if(Object.keys(currentData).length) renderMonth(); else renderEmpty(currentYm);
     refreshDashButtonLabel();
@@ -1634,3 +1642,156 @@ window.submitNewCategory = async () => {
     alert("저장 실패: " + e.message);
   }
 };
+
+const MEMO_PATH = 'budget_app/memoNotes';
+
+function subscribeMemo(){
+  memoListener = onValue(ref(db, MEMO_PATH), (snap) => {
+    memoNotes = snap.exists() ? snap.val() : {};
+    renderMemo();
+  });
+}
+
+function memoSortedNames(){
+  return Object.entries(memoNotes).sort((x, y) => (Number(x[1].order ?? x[1].ts) || 0) - (Number(y[1].order ?? y[1].ts) || 0));
+}
+
+window.addMemoName = () => {
+  const input = document.getElementById('memo-name-input');
+  const name = input.value.trim();
+  if(!name) return;
+  const orders = Object.values(memoNotes).map(n => Number(n.order) || 0);
+  const order = (orders.length ? Math.max(...orders) : 0) + 1;
+  const newRef = push(ref(db, MEMO_PATH));
+  memoSelectedId = newRef.key;
+  input.value = '';
+  set(newRef, { name, order, ts: Date.now() }).catch(er => alert('저장 실패: ' + er.message));
+};
+
+window.selectMemoName = (id) => { memoSelectedId = id; renderMemo(); };
+
+window.moveMemoName = (id, dir) => {
+  const names = memoSortedNames().map(p => p[0]);
+  const i = names.indexOf(id);
+  const j = i + dir;
+  if(i < 0 || j < 0 || j >= names.length) return;
+  [names[i], names[j]] = [names[j], names[i]];
+  const updates = {};
+  names.forEach((nid, idx) => { updates[`${nid}/order`] = idx + 1; });
+  update(ref(db, MEMO_PATH), updates).catch(er => alert('이동 실패: ' + er.message));
+};
+
+window.deleteMemoName = (id) => {
+  const n = memoNotes[id];
+  if(!n) return;
+  const cnt = Object.keys(n.entries || {}).length;
+  if(!confirm(`"${n.name}" 이름과 기록 ${cnt}건을 모두 삭제할까요?`)) return;
+  if(memoSelectedId === id) memoSelectedId = null;
+  remove(ref(db, `${MEMO_PATH}/${id}`)).catch(er => alert('삭제 실패: ' + er.message));
+};
+
+window.addMemoEntry = () => {
+  if(!memoSelectedId) return;
+  const input = document.getElementById('memo-entry-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  push(ref(db, `${MEMO_PATH}/${memoSelectedId}/entries`), { text, ts: Date.now() })
+    .catch(er => alert('저장 실패: ' + er.message));
+};
+
+window.deleteMemoEntry = (nameId, entryId) => {
+  if(!confirm('이 기록을 삭제할까요?')) return;
+  remove(ref(db, `${MEMO_PATH}/${nameId}/entries/${entryId}`)).catch(er => alert('삭제 실패: ' + er.message));
+};
+
+function renderMemo(){
+  const names = memoSortedNames();
+  if(!names.some(p => p[0] === memoSelectedId)) memoSelectedId = names.length ? names[0][0] : null;
+
+  const namesEl = document.getElementById('memo-names');
+  namesEl.innerHTML = '';
+  if(names.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'memo-empty';
+    empty.textContent = '이름을 추가하세요';
+    namesEl.appendChild(empty);
+  }
+  names.forEach(([id, n], idx) => {
+    const item = document.createElement('div');
+    item.className = 'memo-name-item' + (id === memoSelectedId ? ' active' : '');
+    item.onclick = () => selectMemoName(id);
+
+    const label = document.createElement('div');
+    const mn = document.createElement('span');
+    mn.className = 'mn';
+    mn.textContent = n.name || '';
+    const mc = document.createElement('span');
+    mc.className = 'mc';
+    mc.textContent = `${Object.keys(n.entries || {}).length}건`;
+    label.append(mn, mc);
+
+    const actions = document.createElement('div');
+    actions.className = 'ma';
+    const mk = (txt, title, fn, disabled) => {
+      const b = document.createElement('button');
+      b.textContent = txt; b.title = title; b.disabled = !!disabled;
+      if(disabled) b.style.opacity = '.3';
+      b.onclick = (ev) => { ev.stopPropagation(); fn(); };
+      return b;
+    };
+    actions.append(
+      mk('▲', '위로', () => moveMemoName(id, -1), idx === 0),
+      mk('▼', '아래로', () => moveMemoName(id, 1), idx === names.length - 1),
+      mk('✕', '이름 삭제', () => deleteMemoName(id))
+    );
+    item.append(label, actions);
+    namesEl.appendChild(item);
+  });
+
+  const titleEl = document.getElementById('memo-right-title');
+  const formEl = document.getElementById('memo-entry-form');
+  const entriesEl = document.getElementById('memo-entries');
+  entriesEl.innerHTML = '';
+
+  if(!memoSelectedId){
+    titleEl.textContent = '왼쪽에서 이름을 선택하세요';
+    formEl.style.display = 'none';
+    return;
+  }
+  const sel = memoNotes[memoSelectedId];
+  titleEl.textContent = sel.name || '';
+  formEl.style.display = 'flex';
+
+  const entries = Object.entries(sel.entries || {}).sort((x, y) => (y[1].ts || 0) - (x[1].ts || 0));
+  if(entries.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'memo-empty';
+    empty.textContent = '아직 기록이 없어요';
+    entriesEl.appendChild(empty);
+    return;
+  }
+  entries.forEach(([eid, e]) => {
+    const row = document.createElement('div');
+    row.className = 'memo-entry';
+    const d = new Date(e.ts || Date.now());
+    const pad2 = (v) => String(v).padStart(2, '0');
+    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const mt = document.createElement('div');
+    mt.className = 'mt';
+    const text = document.createElement('div');
+    text.className = 'mtext';
+    text.textContent = e.text || '';
+    const date = document.createElement('div');
+    date.className = 'mdate';
+    date.textContent = dateStr;
+    mt.append(text, date);
+    const del = document.createElement('button');
+    del.className = 'mdel';
+    del.textContent = '✕';
+    del.title = '기록 삭제';
+    del.onclick = () => deleteMemoEntry(memoSelectedId, eid);
+    row.append(mt, del);
+    entriesEl.appendChild(row);
+  });
+}

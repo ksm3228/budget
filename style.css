@@ -337,3 +337,28 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
   opacity:0; pointer-events:none; transition:opacity .25s;
 }
 .toast.show{ opacity:0.95; }
+
+/* 메모장 */
+.memo-layout{ display:flex; gap:10px; align-items:flex-start; }
+.memo-left{ flex:0 0 38%; min-width:0; }
+.memo-right{ flex:1; min-width:0; }
+.memo-name-form{ display:flex; gap:4px; margin-bottom:8px; }
+.memo-name-form input{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:8px; font-size:13px; font-family:inherit; background:#fff; }
+.memo-name-form button, .memo-entry-form button{ border:none; background:var(--accent); color:#fff; border-radius:8px; padding:8px 10px; font-size:12.5px; font-weight:700; cursor:pointer; flex:0 0 auto; }
+.memo-names{ display:flex; flex-direction:column; gap:6px; }
+.memo-name-item{ background:#FAFAF7; border:1px solid transparent; border-radius:10px; padding:8px 10px; cursor:pointer; }
+.memo-name-item.active{ border-color:var(--accent); background:var(--accent-soft); }
+.memo-name-item .mn{ font-size:13.5px; font-weight:800; color:var(--ink); word-break:break-all; }
+.memo-name-item .mc{ font-size:11px; color:var(--sub); font-weight:600; margin-left:4px; }
+.memo-name-item .ma{ display:flex; justify-content:flex-end; gap:2px; margin-top:4px; }
+.memo-name-item .ma button{ border:none; background:none; color:var(--sub); font-size:13px; cursor:pointer; padding:2px 6px; }
+.memo-right-title{ font-size:14px; font-weight:800; margin-bottom:8px; color:var(--ink); }
+.memo-entry-form{ display:flex; gap:6px; align-items:flex-end; margin-bottom:10px; }
+.memo-entry-form textarea{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:8px; font-size:13px; font-family:inherit; background:#fff; resize:vertical; }
+.memo-entries{ display:flex; flex-direction:column; gap:6px; }
+.memo-entry{ display:flex; gap:8px; align-items:flex-start; background:#FAFAF7; border-radius:10px; padding:9px 10px; }
+.memo-entry .mt{ flex:1; min-width:0; }
+.memo-entry .mtext{ font-size:13px; color:var(--ink); white-space:pre-wrap; word-break:break-word; }
+.memo-entry .mdate{ font-size:10.5px; color:var(--sub); margin-top:3px; }
+.memo-entry .mdel{ border:none; background:none; color:var(--sub); font-size:14px; cursor:pointer; flex:0 0 auto; }
+.memo-empty{ color:var(--sub); font-size:12.5px; text-align:center; padding:14px 0; }

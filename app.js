@@ -698,7 +698,14 @@ function condolenceSelectHTML(cls, options, current){
   ).join('') + `</select>`;
 }
 
+function syncStickyOffset(){
+  const hd = document.querySelector('#condolence-view .sticky-head');
+  if(hd && hd.offsetHeight) document.documentElement.style.setProperty('--sticky-head-h', hd.offsetHeight + 'px');
+}
+window.addEventListener('resize', syncStickyOffset);
+
 function renderCondolenceList(){
+  requestAnimationFrame(syncStickyOffset);
   const listEl = document.getElementById('condolence-list');
   const receivedTotalEl = document.getElementById('condolence-received-total');
   const meTotalEl = document.getElementById('condolence-total-me');

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>가계부/메모장</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-<link rel="stylesheet" href="style.css?v=11.1">
+<link rel="stylesheet" href="style.css?v=11.2">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v11.1</span></h1>
+    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v11.2</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -190,13 +190,15 @@
 
   <div id="memo-view" style="display:none;">
     <div class="dash-card">
-      <div class="samsung-header-row sticky-head">
-        <div class="dash-title">메모장</div>
-        <button class="edit-toggle" id="memo-edit-btn" onclick="toggleMemoEdit()">편집</button>
-      </div>
-      <div class="memo-name-form">
-        <input type="text" id="memo-name-input" placeholder="이름 추가" onkeydown="if(event.key==='Enter')addMemoName()">
-        <button onclick="addMemoName()">추가</button>
+      <div class="sticky-top">
+        <div class="samsung-header-row">
+          <div class="dash-title">메모장</div>
+          <button class="edit-toggle" id="memo-edit-btn" onclick="toggleMemoEdit()">편집</button>
+        </div>
+        <div class="memo-name-form">
+          <input type="text" id="memo-name-input" placeholder="이름 추가" onkeydown="if(event.key==='Enter')addMemoName()">
+          <button onclick="addMemoName()">추가</button>
+        </div>
       </div>
       <div id="memo-rows" class="memo-rows"></div>
     </div>
@@ -294,6 +296,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="app.js?v=11.1"></script>
+<script type="module" src="app.js?v=11.2"></script>
 </body>
 </html>

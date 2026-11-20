@@ -363,3 +363,5 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 
 /* 상단 고정 (편집/검색) */
 .sticky-head{ position:sticky; top:0; z-index:6; background:var(--card); padding:8px 0; margin-bottom:8px; }
+.sticky-top{ position:sticky; top:0; z-index:6; background:var(--card); padding:8px 0 2px; margin-bottom:8px; }
+.sticky-top .memo-name-form{ margin-bottom:6px; }

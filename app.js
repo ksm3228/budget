@@ -36,6 +36,8 @@ let memoListener = null;
 let memoNotes = {};
 let memoEditMode = false;
 let memoDrafts = {};
+let memoEntryDrafts = {};
+let memoRendering = false;
 let condolenceEntries = {};
 let condolenceEditMode = false;
 let samsungEntries = {};
@@ -1710,6 +1712,22 @@ window.addMemoEntry = (id) => {
     .catch(er => alert('저장 실패: ' + er.message));
 };
 
+function memoAutosize(el){
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+function saveMemoEntryEdit(nameId, entryId, ta, orig){
+  if(memoRendering) return;
+  const v = ta.value.trim();
+  delete memoEntryDrafts[entryId];
+  const before = String(orig || '').trim();
+  if(!v){ ta.value = orig || ''; memoAutosize(ta); return; }
+  if(v === before) return;
+  update(ref(db, `${MEMO_PATH}/${nameId}/entries/${entryId}`), { text: v, edited: Date.now() })
+    .catch(er => alert('수정 실패: ' + er.message));
+}
+
 window.deleteMemoEntry = (nameId, entryId) => {
   if(!confirm('이 기록을 삭제할까요?')) return;
   remove(ref(db, `${MEMO_PATH}/${nameId}/entries/${entryId}`)).catch(er => alert('삭제 실패: ' + er.message));
@@ -1721,10 +1739,13 @@ function renderMemo(){
 
   // 입력 중이던 칸의 포커스 보존
   const ae = document.activeElement;
-  const focusId = (ae && ae.dataset && ae.dataset.memoInput) || null;
-  const caret = focusId ? ae.selectionStart : 0;
+  const focusKey = (ae && ae.dataset && ae.dataset.memoKey) || null;
+  const caret = focusKey ? ae.selectionStart : 0;
+  let focusEl = null;
 
+  memoRendering = true;
   rowsEl.innerHTML = '';
+  memoRendering = false;
   if(names.length === 0){
     const empty = document.createElement('div');
     empty.className = 'memo-empty';
@@ -1777,9 +1798,14 @@ function renderMemo(){
       const d = new Date(e.ts || Date.now());
       const mt = document.createElement('div');
       mt.className = 'mt';
-      const text = document.createElement('div');
-      text.className = 'mtext';
-      text.textContent = e.text || '';
+      const text = document.createElement('textarea');
+      text.className = 'mtext-edit';
+      text.rows = 1;
+      text.dataset.memoKey = 'edit:' + eid;
+      text.value = (eid in memoEntryDrafts) ? memoEntryDrafts[eid] : (e.text || '');
+      text.oninput = () => { memoEntryDrafts[eid] = text.value; memoAutosize(text); };
+      text.onblur = () => saveMemoEntryEdit(id, eid, text, e.text);
+      if(focusKey === 'edit:' + eid) focusEl = text;
       const date = document.createElement('div');
       date.className = 'mdate';
       date.textContent = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -1798,7 +1824,7 @@ function renderMemo(){
     const ta = document.createElement('textarea');
     ta.rows = 1;
     ta.placeholder = '내용 기록';
-    ta.dataset.memoInput = id;
+    ta.dataset.memoKey = 'add:' + id;
     ta.value = memoDrafts[id] || '';
     ta.oninput = () => { memoDrafts[id] = ta.value; };
     const addBtn = document.createElement('button');
@@ -1810,9 +1836,12 @@ function renderMemo(){
     row.append(nameCell, body);
     rowsEl.appendChild(row);
 
-    if(focusId === id){
-      ta.focus();
-      try{ ta.setSelectionRange(caret, caret); }catch(_){}
-    }
+    if(focusKey === 'add:' + id) focusEl = ta;
   });
+
+  rowsEl.querySelectorAll('textarea.mtext-edit').forEach(memoAutosize);
+  if(focusEl){
+    focusEl.focus();
+    try{ focusEl.setSelectionRange(caret, caret); }catch(_){}
+  }
 }

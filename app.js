@@ -1671,6 +1671,8 @@ const INVEST_ALIASES = { '연저펀': ['연금저축'] };
 let investData = {};
 let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
+const INVEST_OWNERS = ['나','아내','어머니'];
+const investOwnerOf = (e) => (INVEST_OWNERS.includes(e.owner) ? e.owner : (e.owner || '나'));
 
 function investKeyForAssetItem(item){
   const hay = ((item.name || '') + ' ' + (item.category || '')).toLowerCase();
@@ -1724,6 +1726,7 @@ window.addInvestHolding = () => {
   const sharesEl = document.getElementById('invest-in-shares');
   const avgEl = document.getElementById('invest-in-avg');
   const priceEl = document.getElementById('invest-in-price');
+  const owner = document.getElementById('invest-in-owner').value;
   const name = nameEl.value.trim();
   const shares = investParse(sharesEl.value);
   const avgPrice = investParse(avgEl.value);
@@ -1732,7 +1735,7 @@ window.addInvestHolding = () => {
   if(!name){ alert('종목명을 입력해주세요.'); return; }
   if(shares <= 0){ alert('구입주수를 입력해주세요.'); return; }
   if(avgPrice <= 0){ alert('매입평단액을 입력해주세요.'); return; }
-  push(ref(db, `${INVEST_PATH}/${investSection}`), { name, shares, avgPrice, price, ts: Date.now() })
+  push(ref(db, `${INVEST_PATH}/${investSection}`), { name, owner, shares, avgPrice, price, ts: Date.now() })
     .then(() => {
       nameEl.value = ''; sharesEl.value = ''; avgEl.value = ''; priceEl.value = '';
       nameEl.focus();
@@ -1765,6 +1768,19 @@ function renderInvest(){
     <div class="samsung-total-box"><div class="t">평가손익</div><div class="v ${investCls(pl)}">${investSigned(sec, pl)} (${plRate > 0 ? '+' : ''}${plRate.toFixed(1)}%)</div></div>
   `;
 
+  const ownerSumEl = document.getElementById('invest-owner-summary');
+  const ownerKeys = [...INVEST_OWNERS, ...[...new Set(entries.map(([id, e]) => investOwnerOf(e)))].filter(o => !INVEST_OWNERS.includes(o))];
+  ownerSumEl.innerHTML = ownerKeys.map(o => {
+    const arr = entries.filter(([id, e]) => investOwnerOf(e) === o);
+    const oc = arr.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.avgPrice) || 0), 0);
+    const ov = arr.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.price ?? e.avgPrice) || 0), 0);
+    const op = ov - oc;
+    const orate = oc > 0 ? (op / oc) * 100 : 0;
+    return `<div class="invest-owner-box"><span class="o">${escapeHtml(o)}</span>
+      <div><span class="k">평가금액 (매입 ${investMoney(sec, oc)})</span><span class="v">${investMoney(sec, ov)}</span></div>
+      <div><span class="k">평가손익</span><span class="v ${investCls(op)}">${investSigned(sec, op)} (${orate > 0 ? '+' : ''}${orate.toFixed(1)}%)</span></div></div>`;
+  }).join('');
+
   const listEl = document.getElementById('invest-list');
   if(entries.length === 0){
     listEl.innerHTML = `<div class="samsung-empty">'${escapeHtml(sec)}' 종목이 아직 없어요. 위에서 추가해보세요.</div>`;
@@ -1772,7 +1788,20 @@ function renderInvest(){
   }
 
   listEl.innerHTML = '';
-  entries.forEach(([id, e]) => {
+  const ordered = [];
+  ownerKeys.forEach(o => {
+    const arr = entries.filter(([id, e]) => investOwnerOf(e) === o);
+    if(arr.length){ ordered.push({ ownerHead: o, count: arr.length }); arr.forEach(p => ordered.push(p)); }
+  });
+  ordered.forEach((item) => {
+    if(item.ownerHead){
+      const hd = document.createElement('div');
+      hd.className = 'invest-owner-head';
+      hd.innerHTML = `<span>${escapeHtml(item.ownerHead)}</span><span>${item.count}종목</span>`;
+      listEl.appendChild(hd);
+      return;
+    }
+    const [id, e] = item;
     const shares = Number(e.shares) || 0;
     const avg = Number(e.avgPrice) || 0;
     const price = Number(e.price ?? e.avgPrice) || 0;
@@ -1796,7 +1825,9 @@ function renderInvest(){
           <div><span class="k">매입평단액</span><input class="i-avg" type="text" inputmode="decimal" value="${avg}"></div>
           <div><span class="k">현재가</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
         </div>
+        <select class="i-owner">${INVEST_OWNERS.map(o => `<option value="${o}"${o === investOwnerOf(e) ? ' selected' : ''}>소유자: ${o}</option>`).join('')}</select>
       `;
+      row.querySelector('.i-owner').onchange = (ev) => update(ref(db, path), { owner: ev.target.value }).catch(er => alert('수정 실패: ' + er.message));
       row.querySelector('.invest-name-input').onblur = (ev) => {
         const v = ev.target.value.trim();
         if(v && v !== e.name) update(ref(db, path), { name: v }).catch(er => alert('수정 실패: ' + er.message));
@@ -1810,7 +1841,7 @@ function renderInvest(){
     } else {
       row.innerHTML = `
         <div class="invest-top">
-          <span class="invest-name">${escapeHtml(e.name || '')}</span>
+          <span class="invest-name">${escapeHtml(e.name || '')}<span class="invest-owner-tag">${escapeHtml(investOwnerOf(e))}</span></span>
           <span class="invest-change ${cls}">${arrow} ${Math.abs(rate).toFixed(1)}%</span>
         </div>
         <div class="invest-grid">

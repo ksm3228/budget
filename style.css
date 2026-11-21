@@ -391,3 +391,13 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-down{ color:#3F6FB5; }
 .invest-flat{ color:var(--sub); }
 .invest-link{ border:none; background:none; color:var(--accent); font-size:11px; font-weight:800; cursor:pointer; padding:2px 0; text-align:left; margin-top:2px; }
+.invest-form select{ flex:1 1 110px; min-width:110px; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:16px; font-family:inherit; background:#fff; }
+.invest-owner-title{ font-size:12px; font-weight:800; color:var(--sub); margin:2px 0 6px; }
+.invest-owner-summary{ display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+.invest-owner-box{ display:grid; grid-template-columns:52px 1fr 1fr; gap:8px; align-items:center; background:#FAFAF7; border-radius:10px; padding:9px 12px; }
+.invest-owner-box .o{ font-size:13px; font-weight:900; color:var(--accent); }
+.invest-owner-box .k{ display:block; font-size:10.5px; color:var(--sub); margin-bottom:1px; }
+.invest-owner-box .v{ font-size:13px; font-weight:800; color:var(--ink); }
+.invest-owner-head{ font-size:12.5px; font-weight:800; color:var(--accent); background:var(--accent-soft); border-radius:8px; padding:6px 10px; margin:8px 0 0; display:flex; justify-content:space-between; }
+.invest-owner-tag{ font-size:10.5px; font-weight:800; border-radius:6px; padding:1px 6px; margin-left:6px; background:var(--accent-soft); color:var(--accent); }
+.invest-row select.i-owner{ width:100%; border:1px solid var(--line); border-radius:7px; padding:6px 8px; font-size:16px; font-family:inherit; background:#fff; margin-top:6px; }

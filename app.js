@@ -1671,8 +1671,23 @@ const INVEST_ALIASES = { '연저펀': ['연금저축'] };
 let investData = {};
 let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
-const INVEST_OWNERS = ['나','아내','어머니'];
-const investOwnerOf = (e) => (INVEST_OWNERS.includes(e.owner) ? e.owner : (e.owner || '나'));
+const INVEST_BASE_OWNERS = ['나','아내','어머니'];
+const INVEST_OWNERS_PATH = 'budget_app/investOwners';
+let investCustomOwners = [];
+const investOwners = () => [...INVEST_BASE_OWNERS, ...investCustomOwners.filter(o => !INVEST_BASE_OWNERS.includes(o))];
+const investOwnerOf = (e) => e.owner || '나';
+
+window.addInvestOwner = () => {
+  const v = prompt('추가할 소유자 이름을 입력해주세요 (예: 첫째, 둘째 이름)');
+  if(v === null) return;
+  const name = v.trim();
+  if(!name) return;
+  if(investOwners().includes(name)){ alert('이미 있는 소유자예요.'); return; }
+  investPendingOwner = name;
+  push(ref(db, INVEST_OWNERS_PATH), name)
+    .catch(er => { investPendingOwner = null; alert('저장 실패: ' + er.message); });
+};
+let investPendingOwner = null;
 
 function investKeyForAssetItem(item){
   const hay = ((item.name || '') + ' ' + (item.category || '')).toLowerCase();
@@ -1680,10 +1695,16 @@ function investKeyForAssetItem(item){
 }
 
 function subscribeInvest(){
-  investListener = onValue(ref(db, INVEST_PATH), (snap) => {
+  const off1 = onValue(ref(db, INVEST_PATH), (snap) => {
     investData = snap.exists() ? snap.val() : {};
     renderInvest();
   });
+  const off2 = onValue(ref(db, INVEST_OWNERS_PATH), (snap) => {
+    const v = snap.exists() ? snap.val() : {};
+    investCustomOwners = Object.values(v).map(x => String(x)).filter(Boolean);
+    renderInvest();
+  });
+  investListener = () => { off1(); off2(); };
 }
 
 window.toggleInvestEdit = () => {
@@ -1751,6 +1772,12 @@ function renderInvest(){
     return `<button class="invest-chip${k === sec ? ' active' : ''}" onclick="setInvestSection('${k}')">${k}${n ? ` <span class="c">${n}</span>` : ''}</button>`;
   }).join('');
 
+  const ownerSel = document.getElementById('invest-in-owner');
+  const keepOwner = investPendingOwner || ownerSel.value || '나';
+  if(investPendingOwner && investOwners().includes(investPendingOwner)) investPendingOwner = null;
+  ownerSel.innerHTML = investOwners().map(o => `<option value="${escapeHtml(o)}">소유자: ${escapeHtml(o)}</option>`).join('');
+  ownerSel.value = investOwners().includes(keepOwner) ? keepOwner : '나';
+
   const unit = sec === '해외주식' ? ' (달러)' : '';
   document.getElementById('invest-add-title').textContent = `'${sec}'에 종목 추가`;
   document.getElementById('invest-in-avg').placeholder = '매입평단액' + unit;
@@ -1769,7 +1796,7 @@ function renderInvest(){
   `;
 
   const ownerSumEl = document.getElementById('invest-owner-summary');
-  const ownerKeys = [...INVEST_OWNERS, ...[...new Set(entries.map(([id, e]) => investOwnerOf(e)))].filter(o => !INVEST_OWNERS.includes(o))];
+  const ownerKeys = [...investOwners(), ...[...new Set(entries.map(([id, e]) => investOwnerOf(e)))].filter(o => !investOwners().includes(o))];
   ownerSumEl.innerHTML = ownerKeys.map(o => {
     const arr = entries.filter(([id, e]) => investOwnerOf(e) === o);
     const oc = arr.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.avgPrice) || 0), 0);
@@ -1825,7 +1852,7 @@ function renderInvest(){
           <div><span class="k">매입평단액</span><input class="i-avg" type="text" inputmode="decimal" value="${avg}"></div>
           <div><span class="k">현재가</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
         </div>
-        <select class="i-owner">${INVEST_OWNERS.map(o => `<option value="${o}"${o === investOwnerOf(e) ? ' selected' : ''}>소유자: ${o}</option>`).join('')}</select>
+        <select class="i-owner">${[...ownerKeys].map(o => `<option value="${escapeHtml(o)}"${o === investOwnerOf(e) ? ' selected' : ''}>소유자: ${escapeHtml(o)}</option>`).join('')}</select>
       `;
       row.querySelector('.i-owner').onchange = (ev) => update(ref(db, path), { owner: ev.target.value }).catch(er => alert('수정 실패: ' + er.message));
       row.querySelector('.invest-name-input').onblur = (ev) => {

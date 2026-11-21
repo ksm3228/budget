@@ -401,3 +401,4 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-owner-head{ font-size:12.5px; font-weight:800; color:var(--accent); background:var(--accent-soft); border-radius:8px; padding:6px 10px; margin:8px 0 0; display:flex; justify-content:space-between; }
 .invest-owner-tag{ font-size:10.5px; font-weight:800; border-radius:6px; padding:1px 6px; margin-left:6px; background:var(--accent-soft); color:var(--accent); }
 .invest-row select.i-owner{ width:100%; border:1px solid var(--line); border-radius:7px; padding:6px 8px; font-size:16px; font-family:inherit; background:#fff; margin-top:6px; }
+.invest-form button.invest-owner-add{ background:#fff; color:var(--accent); border:1px solid var(--accent); }

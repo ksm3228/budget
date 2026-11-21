@@ -33,6 +33,7 @@ let activeDashboard = null; // null | 'card' | 'samsung'
 let samsungListener = null;
 let condolenceListener = null;
 let memoListener = null;
+let investListener = null;
 let memoNotes = {};
 let memoEditMode = false;
 let memoDrafts = {};
@@ -238,11 +239,13 @@ window.toggleDashboard = async (which) => {
   document.getElementById('samsung-toggle-btn').classList.toggle('active', activeDashboard === 'samsung');
   document.getElementById('donation-toggle-btn').classList.toggle('active', activeDashboard === 'donation');
   document.getElementById('condolence-toggle-btn').classList.toggle('active', activeDashboard === 'condolence');
+  document.getElementById('invest-toggle-btn').classList.toggle('active', activeDashboard === 'invest');
   document.getElementById('memo-toggle-btn').classList.toggle('active', activeDashboard === 'memo');
   document.getElementById('dashboard-view').style.display = activeDashboard === 'card' ? 'block' : 'none';
   document.getElementById('samsung-view').style.display = activeDashboard === 'samsung' ? 'block' : 'none';
   document.getElementById('donation-view').style.display = activeDashboard === 'donation' ? 'block' : 'none';
   document.getElementById('condolence-view').style.display = activeDashboard === 'condolence' ? 'block' : 'none';
+  document.getElementById('invest-view').style.display = activeDashboard === 'invest' ? 'block' : 'none';
   document.getElementById('memo-view').style.display = activeDashboard === 'memo' ? 'block' : 'none';
   document.getElementById('tabs-area').style.display = activeDashboard ? 'none' : 'block';
   document.getElementById('categories-container').style.display = activeDashboard ? 'none' : 'block';
@@ -252,6 +255,7 @@ window.toggleDashboard = async (which) => {
   if(samsungListener){ samsungListener(); samsungListener = null; }
   if(condolenceListener){ condolenceListener(); condolenceListener = null; }
   if(memoListener){ memoListener(); memoListener = null; }
+  if(investListener){ investListener(); investListener = null; }
 
   if(activeDashboard === 'card'){
     await renderDashboard();
@@ -261,6 +265,8 @@ window.toggleDashboard = async (which) => {
     await renderDonationDashboard();
   } else if(activeDashboard === 'condolence'){
     subscribeCondolenceList();
+  } else if(activeDashboard === 'invest'){
+    subscribeInvest();
   } else if(activeDashboard === 'memo'){
     subscribeMemo();
   } else {
@@ -1413,6 +1419,18 @@ function buildItemRow(item){
     }
   }
 
+  if(item.type === 'asset'){
+    const investKey = investKeyForAssetItem(item);
+    if(investKey){
+      const linkBtn = document.createElement('button');
+      linkBtn.className = 'invest-link';
+      linkBtn.type = 'button';
+      linkBtn.textContent = `📈 ${investKey} 세부내역 보기`;
+      linkBtn.onclick = () => openInvestSection(investKey);
+      main.appendChild(linkBtn);
+    }
+  }
+
   row.appendChild(main);
 
   if(item.type !== 'income' && item.type !== 'expected' && item.type !== 'asset'){
@@ -1645,6 +1663,173 @@ window.submitNewCategory = async () => {
     alert("저장 실패: " + e.message);
   }
 };
+
+// ===== 투자내역 =====
+const INVEST_PATH = 'budget_app/investments';
+const INVEST_SECTIONS = ['국내주식','해외주식','ISA','연저펀','금투자'];
+const INVEST_ALIASES = { '연저펀': ['연금저축'] };
+let investData = {};
+let investSection = INVEST_SECTIONS[0];
+let investEditMode = false;
+
+function investKeyForAssetItem(item){
+  const hay = ((item.name || '') + ' ' + (item.category || '')).toLowerCase();
+  return INVEST_SECTIONS.find(k => hay.includes(k.toLowerCase()) || (INVEST_ALIASES[k] || []).some(al => hay.includes(al.toLowerCase()))) || null;
+}
+
+function subscribeInvest(){
+  investListener = onValue(ref(db, INVEST_PATH), (snap) => {
+    investData = snap.exists() ? snap.val() : {};
+    renderInvest();
+  });
+}
+
+window.toggleInvestEdit = () => {
+  investEditMode = !investEditMode;
+  const btn = document.getElementById('invest-edit-btn');
+  btn.textContent = investEditMode ? '완료' : '편집';
+  btn.classList.toggle('on', investEditMode);
+  renderInvest();
+};
+
+window.setInvestSection = (k) => { investSection = k; renderInvest(); };
+
+window.openInvestSection = (k) => {
+  investSection = k;
+  if(activeDashboard !== 'invest') window.toggleDashboard('invest');
+  else renderInvest();
+};
+
+function investParse(str){
+  const n = parseFloat(String(str ?? '').replace(/[^0-9.\-]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+function investMoney(sec, n){
+  const v = Number(n) || 0;
+  return sec === '해외주식'
+    ? (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 })
+    : Math.round(v).toLocaleString('ko-KR') + '원';
+}
+function investSigned(sec, n){
+  const v = Number(n) || 0;
+  return (v > 0 ? '+' : '') + investMoney(sec, v);
+}
+function investQty(n){
+  return (Number(n) || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
+}
+function investCls(n){ return n > 0 ? 'invest-up' : (n < 0 ? 'invest-down' : 'invest-flat'); }
+
+window.addInvestHolding = () => {
+  const nameEl = document.getElementById('invest-in-name');
+  const sharesEl = document.getElementById('invest-in-shares');
+  const avgEl = document.getElementById('invest-in-avg');
+  const priceEl = document.getElementById('invest-in-price');
+  const name = nameEl.value.trim();
+  const shares = investParse(sharesEl.value);
+  const avgPrice = investParse(avgEl.value);
+  const priceRaw = String(priceEl.value).trim();
+  const price = priceRaw ? investParse(priceRaw) : avgPrice;
+  if(!name){ alert('종목명을 입력해주세요.'); return; }
+  if(shares <= 0){ alert('구입주수를 입력해주세요.'); return; }
+  if(avgPrice <= 0){ alert('매입평단액을 입력해주세요.'); return; }
+  push(ref(db, `${INVEST_PATH}/${investSection}`), { name, shares, avgPrice, price, ts: Date.now() })
+    .then(() => {
+      nameEl.value = ''; sharesEl.value = ''; avgEl.value = ''; priceEl.value = '';
+      nameEl.focus();
+    })
+    .catch(er => alert('저장 실패: ' + er.message));
+};
+
+function renderInvest(){
+  const sec = investSection;
+  const tabsEl = document.getElementById('invest-section-tabs');
+  tabsEl.innerHTML = INVEST_SECTIONS.map(k => {
+    const n = Object.keys(investData[k] || {}).length;
+    return `<button class="invest-chip${k === sec ? ' active' : ''}" onclick="setInvestSection('${k}')">${k}${n ? ` <span class="c">${n}</span>` : ''}</button>`;
+  }).join('');
+
+  const unit = sec === '해외주식' ? ' (달러)' : '';
+  document.getElementById('invest-add-title').textContent = `'${sec}'에 종목 추가`;
+  document.getElementById('invest-in-avg').placeholder = '매입평단액' + unit;
+  document.getElementById('invest-in-price').placeholder = '현재가' + unit + ' (비우면 평단)';
+
+  const entries = Object.entries(investData[sec] || {}).sort((x, y) => (x[1].ts || 0) - (y[1].ts || 0));
+  const cost = entries.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.avgPrice) || 0), 0);
+  const value = entries.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.price ?? e.avgPrice) || 0), 0);
+  const pl = value - cost;
+  const plRate = cost > 0 ? (pl / cost) * 100 : 0;
+
+  document.getElementById('invest-summary').innerHTML = `
+    <div class="samsung-total-box"><div class="t">매입금액 합계</div><div class="v">${investMoney(sec, cost)}</div></div>
+    <div class="samsung-total-box"><div class="t">평가금액 합계</div><div class="v">${investMoney(sec, value)}</div></div>
+    <div class="samsung-total-box"><div class="t">평가손익</div><div class="v ${investCls(pl)}">${investSigned(sec, pl)} (${plRate > 0 ? '+' : ''}${plRate.toFixed(1)}%)</div></div>
+  `;
+
+  const listEl = document.getElementById('invest-list');
+  if(entries.length === 0){
+    listEl.innerHTML = `<div class="samsung-empty">'${escapeHtml(sec)}' 종목이 아직 없어요. 위에서 추가해보세요.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = '';
+  entries.forEach(([id, e]) => {
+    const shares = Number(e.shares) || 0;
+    const avg = Number(e.avgPrice) || 0;
+    const price = Number(e.price ?? e.avgPrice) || 0;
+    const diff = price - avg;
+    const rate = avg > 0 ? (diff / avg) * 100 : 0;
+    const evalPl = diff * shares;
+    const cls = investCls(diff);
+    const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '-');
+    const path = `${INVEST_PATH}/${sec}/${id}`;
+    const row = document.createElement('div');
+    row.className = 'invest-row';
+
+    if(investEditMode){
+      row.innerHTML = `
+        <div class="invest-top">
+          <input class="invest-name-input" type="text" value="${escapeHtml(e.name || '')}">
+          <button class="invest-del">✕</button>
+        </div>
+        <div class="invest-grid">
+          <div><span class="k">구입주수</span><input class="i-shares" type="text" inputmode="decimal" value="${shares}"></div>
+          <div><span class="k">매입평단액</span><input class="i-avg" type="text" inputmode="decimal" value="${avg}"></div>
+          <div><span class="k">현재가</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
+        </div>
+      `;
+      row.querySelector('.invest-name-input').onblur = (ev) => {
+        const v = ev.target.value.trim();
+        if(v && v !== e.name) update(ref(db, path), { name: v }).catch(er => alert('수정 실패: ' + er.message));
+      };
+      row.querySelector('.i-shares').onblur = (ev) => update(ref(db, path), { shares: investParse(ev.target.value) }).catch(er => alert('수정 실패: ' + er.message));
+      row.querySelector('.i-avg').onblur = (ev) => update(ref(db, path), { avgPrice: investParse(ev.target.value) }).catch(er => alert('수정 실패: ' + er.message));
+      row.querySelector('.i-price').onblur = (ev) => update(ref(db, path), { price: investParse(ev.target.value) }).catch(er => alert('수정 실패: ' + er.message));
+      row.querySelector('.invest-del').onclick = () => {
+        if(confirm('이 종목을 삭제할까요?')) remove(ref(db, path)).catch(er => alert('삭제 실패: ' + er.message));
+      };
+    } else {
+      row.innerHTML = `
+        <div class="invest-top">
+          <span class="invest-name">${escapeHtml(e.name || '')}</span>
+          <span class="invest-change ${cls}">${arrow} ${Math.abs(rate).toFixed(1)}%</span>
+        </div>
+        <div class="invest-grid">
+          <div><span class="k">구입주수</span><span class="v">${investQty(shares)}주</span></div>
+          <div><span class="k">매입평단액</span><span class="v">${investMoney(sec, avg)}</span></div>
+          <div><span class="k">현재가 (직접 수정)</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
+        </div>
+        <div class="invest-detail ${cls}">등락폭 ${investSigned(sec, diff)}/주 · 평가손익 ${investSigned(sec, evalPl)} · 평가금액 ${investMoney(sec, price * shares)}</div>
+      `;
+      const priceInput = row.querySelector('.i-price');
+      priceInput.onblur = (ev) => {
+        const v = investParse(ev.target.value);
+        if(v !== price) update(ref(db, path), { price: v }).catch(er => alert('수정 실패: ' + er.message));
+      };
+      priceInput.onkeydown = (ev) => { if(ev.key === 'Enter') ev.target.blur(); };
+    }
+    listEl.appendChild(row);
+  });
+}
 
 const MEMO_PATH = 'budget_app/memoNotes';
 

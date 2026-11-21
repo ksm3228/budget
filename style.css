@@ -365,3 +365,29 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .sticky-head{ position:sticky; top:0; z-index:6; background:var(--card); padding:8px 0; margin-bottom:8px; }
 .sticky-top{ position:sticky; top:0; z-index:6; background:var(--card); padding:8px 0 2px; margin-bottom:8px; }
 .sticky-top .memo-name-form{ margin-bottom:6px; }
+
+/* ===== 투자내역 ===== */
+.invest-section-tabs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.invest-chip{ border:1px solid var(--line); background:#fff; color:var(--sub); border-radius:999px; padding:7px 13px; font-size:13px; font-weight:800; cursor:pointer; font-family:inherit; }
+.invest-chip.active{ border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+.invest-chip .c{ font-size:11px; font-weight:700; opacity:.8; margin-left:2px; }
+.invest-add-title{ font-size:12px; font-weight:800; color:var(--sub); margin:2px 0 6px; }
+.invest-form{ display:flex; flex-wrap:wrap; gap:8px; padding:12px; margin-bottom:14px; border:1px solid var(--line); border-radius:10px; background:#FAFAF7; }
+.invest-form input{ flex:1 1 90px; min-width:90px; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:16px; font-family:inherit; background:#fff; }
+.invest-form button{ border:none; background:var(--accent); color:#fff; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:700; cursor:pointer; flex:0 0 auto; }
+.invest-list{ display:flex; flex-direction:column; gap:8px; }
+.invest-row{ background:#FAFAF7; border-radius:10px; padding:11px 12px; }
+.invest-top{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.invest-name{ font-size:14px; font-weight:800; color:var(--ink); word-break:break-all; }
+.invest-change{ font-size:13px; font-weight:900; white-space:nowrap; }
+.invest-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+.invest-grid .k{ display:block; font-size:10.5px; color:var(--sub); margin-bottom:2px; }
+.invest-grid .v{ font-size:13px; font-weight:700; color:var(--ink); }
+.invest-row input{ width:100%; min-width:0; border:1px solid var(--line); border-radius:7px; padding:6px 8px; font-size:16px; font-family:inherit; background:#fff; }
+.invest-row input.invest-name-input{ font-weight:800; }
+.invest-detail{ margin-top:8px; font-size:12px; font-weight:700; }
+.invest-row .invest-del{ border:none; background:none; color:var(--sub); font-size:15px; cursor:pointer; }
+.invest-up{ color:#D14B4B; }
+.invest-down{ color:#3F6FB5; }
+.invest-flat{ color:var(--sub); }
+.invest-link{ border:none; background:none; color:var(--accent); font-size:11px; font-weight:800; cursor:pointer; padding:2px 0; text-align:left; margin-top:2px; }

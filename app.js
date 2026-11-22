@@ -37,6 +37,8 @@ let investListener = null;
 let memoNotes = {};
 let memoEditMode = false;
 let memoDrafts = {};
+let memoAddOpen = {};
+let memoFocusAddId = null;
 let memoEntryDrafts = {};
 let memoRendering = false;
 let condolenceEntries = {};
@@ -1942,10 +1944,17 @@ window.deleteMemoName = (id) => {
   remove(ref(db, `${MEMO_PATH}/${id}`)).catch(er => alert('삭제 실패: ' + er.message));
 };
 
+window.toggleMemoAdd = (id) => {
+  memoAddOpen[id] = !memoAddOpen[id];
+  memoFocusAddId = memoAddOpen[id] ? id : null;
+  renderMemo();
+};
+
 window.addMemoEntry = (id) => {
   const text = (memoDrafts[id] || '').trim();
   if(!text) return;
   memoDrafts[id] = '';
+  memoAddOpen[id] = false;
   push(ref(db, `${MEMO_PATH}/${id}/entries`), { text, ts: Date.now() })
     .catch(er => alert('저장 실패: ' + er.message));
 };
@@ -2009,6 +2018,14 @@ function renderMemo(){
     mc.textContent = `${Object.keys(n.entries || {}).length}건`;
     label.append(mn, mc);
     nameCell.appendChild(label);
+    const right = document.createElement('div');
+    right.className = 'mr';
+    const toggleAdd = document.createElement('button');
+    toggleAdd.className = 'mb-add';
+    toggleAdd.textContent = memoAddOpen[id] ? '닫기' : '추가';
+    toggleAdd.onclick = () => toggleMemoAdd(id);
+    right.appendChild(toggleAdd);
+    nameCell.appendChild(right);
     if(memoEditMode){
       const actions = document.createElement('div');
       actions.className = 'ma';
@@ -2023,7 +2040,7 @@ function renderMemo(){
         mk('▼', '아래로', () => moveMemoName(id, 1), idx === names.length - 1),
         mk('✕', '이름 삭제', () => deleteMemoName(id))
       );
-      nameCell.appendChild(actions);
+      right.appendChild(actions);
     }
 
     // 우측: 해당 이름의 기록 전체 + 입력칸 (항상 표시)
@@ -2057,24 +2074,28 @@ function renderMemo(){
       body.appendChild(entry);
     });
 
-    const form = document.createElement('div');
-    form.className = 'memo-add-form';
-    const ta = document.createElement('textarea');
-    ta.rows = 1;
-    ta.placeholder = '내용 기록';
-    ta.dataset.memoKey = 'add:' + id;
-    ta.value = memoDrafts[id] || '';
-    ta.oninput = () => { memoDrafts[id] = ta.value; memoAutosize(ta); };
-    const addBtn = document.createElement('button');
-    addBtn.textContent = '추가';
-    addBtn.onclick = () => addMemoEntry(id);
-    form.append(ta, addBtn);
-    body.appendChild(form);
+    if(memoAddOpen[id]){
+      const form = document.createElement('div');
+      form.className = 'memo-add-form';
+      const ta = document.createElement('textarea');
+      ta.rows = 1;
+      ta.placeholder = '내용 기록';
+      ta.dataset.memoKey = 'add:' + id;
+      ta.value = memoDrafts[id] || '';
+      ta.oninput = () => { memoDrafts[id] = ta.value; memoAutosize(ta); };
+      const addBtn = document.createElement('button');
+      addBtn.textContent = '저장';
+      addBtn.onclick = () => addMemoEntry(id);
+      form.append(ta, addBtn);
+      body.insertBefore(form, body.firstChild);
+      if(memoFocusAddId === id){ focusEl = ta; memoFocusAddId = null; }
+    }
 
-    row.append(nameCell, body);
+    if(body.childNodes.length){ row.append(nameCell, body); }
+    else { nameCell.style.borderRadius = '10px'; row.append(nameCell); }
     rowsEl.appendChild(row);
 
-    if(focusKey === 'add:' + id) focusEl = ta;
+    if(focusKey === 'add:' + id && memoAddOpen[id]){ const t = body.querySelector('.memo-add-form textarea'); if(t) focusEl = t; }
   });
 
   rowsEl.querySelectorAll('textarea').forEach(memoAutosize);

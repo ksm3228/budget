@@ -1425,22 +1425,23 @@ function buildItemRow(item){
   }
 
   if(item.type === 'asset'){
-    const investKey = investKeyForAssetItem(item);
-    if(investKey){
+    const investKeys = investKeysForAssetItem(item);
+    const ownerOfItem = investOwnerForAssetItem(item);
+    investKeys.forEach(investKey => {
       const linkBtn = document.createElement('button');
       linkBtn.className = 'invest-link';
       linkBtn.type = 'button';
       linkBtn.textContent = `📈 ${investKey} 세부내역 보기`;
       linkBtn.onclick = () => openInvestSection(investKey);
       main.appendChild(linkBtn);
-      const noteTxt = investAssetNote(investKey, investOwnerForAssetItem(item));
+      const noteTxt = investAssetNote(investKey, ownerOfItem);
       if(noteTxt){
         const note = document.createElement('div');
         note.className = 'invest-link-note';
-        note.textContent = noteTxt;
+        note.textContent = investKeys.length > 1 ? `[${investKey}] ${noteTxt}` : noteTxt;
         main.appendChild(note);
       }
-    }
+    });
   }
 
   row.appendChild(main);
@@ -1679,7 +1680,7 @@ window.submitNewCategory = async () => {
 // ===== 투자내역 =====
 const INVEST_PATH = 'budget_app/investments';
 const INVEST_SECTIONS = ['국내주식','해외주식','ISA','연저펀','금투자'];
-const INVEST_ALIASES = { '연저펀': ['연금저축'] };
+const INVEST_ALIASES = { '국내주식': ['국내'], '해외주식': ['해외'], '금투자': ['금 투자', '금현물', '골드'], '연저펀': ['연금저축', '연금펀드', '연저'] };
 let investData = {};
 let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
@@ -1703,13 +1704,16 @@ window.addInvestOwner = () => {
 };
 let investPendingOwner = null;
 
-function investKeyForAssetItem(item){
+function investKeysForAssetItem(item){
   const hay = ((item.name || '') + ' ' + (item.category || '')).toLowerCase();
-  return INVEST_SECTIONS.find(k => hay.includes(k.toLowerCase()) || (INVEST_ALIASES[k] || []).some(al => hay.includes(al.toLowerCase()))) || null;
+  return INVEST_SECTIONS.filter(k => hay.includes(k.toLowerCase()) || (INVEST_ALIASES[k] || []).some(al => hay.includes(al.toLowerCase())));
+}
+function investKeyForAssetItem(item){
+  return investKeysForAssetItem(item)[0] || null;
 }
 
 // 순금융자산 항목 옆에 표시할 투자내역 평가금액(참고용, 금액/합계에는 영향 없음)
-const INVEST_OWNER_ALIASES = { '아내': ['정현'], '나': ['본인'] };
+const INVEST_OWNER_ALIASES = { '아내': ['정현'], '나': ['본인', '성민'], '어머니': ['엄마'] };
 // 자산 항목 이름/카테고리에서 소유자 판별 (예: "정현 ISA" → 아내). 못 찾으면 null
 function investOwnerForAssetItem(item){
   const hay = ((item.name || '') + ' ' + (item.category || ''));

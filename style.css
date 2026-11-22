@@ -389,7 +389,7 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-row input.invest-name-input{ font-weight:800; }
 .invest-detail{ margin-top:8px; font-size:12px; font-weight:700; }
 .invest-row .invest-del{ border:none; background:none; color:var(--sub); font-size:15px; cursor:pointer; }
-.invest-up{ color:#2F7D4F; }
+.invest-up{ color:#3F6FB5; }
 .invest-down{ color:#D14B4B; }
 .invest-flat{ color:var(--sub); }
 .invest-link{ border:none; background:none; color:var(--accent); font-size:11px; font-weight:800; cursor:pointer; padding:2px 0; text-align:left; margin-top:2px; }
@@ -426,7 +426,7 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-fx .l{ font-weight:800; color:var(--sub); white-space:nowrap; }
 .invest-fx input{ width:110px; border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:16px; font-family:inherit; background:#fff; }
 .invest-fx .n{ color:var(--sub); font-size:11.5px; line-height:1.35; }
-.invest-owner-box .v.invest-up, .invest-all-head .v.invest-up{ color:#2F7D4F; }
+.invest-owner-box .v.invest-up, .invest-all-head .v.invest-up{ color:#3F6FB5; }
 .invest-owner-box .v.invest-down, .invest-all-head .v.invest-down{ color:#D14B4B; }
 .invest-all-card{ background:#FAFAF7; border-radius:10px; padding:10px 12px; margin-bottom:8px; }
 .invest-all-head{ display:grid; grid-template-columns:52px 1fr 1fr; gap:8px; align-items:center; }

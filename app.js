@@ -1807,7 +1807,7 @@ function renderInvestAll(){
 
   document.getElementById('invest-fx-note').textContent = overseasCount === 0
     ? '해외주식 보유가 없어 환율은 필요 없어요'
-    : (fx ? '해외주식을 이 환율로 원화 환산해 합계에 포함했어요' : '환율을 입력하면 해외주식이 원화로 합산돼요 (지금은 합계에서 제외)');
+    : (fx ? '해외주식 매입·평가·수익을 모두 이 매도 환율로 원화 환산해 합계에 포함했어요' : '매도 환율을 입력하면 해외주식이 원화로 합산돼요 (지금은 합계에서 제외)');
 
   const cost = krw(rows, 'cost'), value = krw(rows, 'value');
   const pl = value - cost, rate = cost > 0 ? (pl / cost) * 100 : 0;

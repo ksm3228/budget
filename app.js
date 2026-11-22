@@ -1677,7 +1677,7 @@ let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
 const INVEST_FX_PATH = 'budget_app/investFx';
 let investFx = 0;
-const INVEST_BASE_OWNERS = ['나','아내','어머니'];
+const INVEST_BASE_OWNERS = ['나','아내','어머니','하준','하연','하은'];
 const INVEST_OWNERS_PATH = 'budget_app/investOwners';
 let investCustomOwners = [];
 const investOwners = () => [...INVEST_BASE_OWNERS, ...investCustomOwners.filter(o => !INVEST_BASE_OWNERS.includes(o))];
@@ -1864,6 +1864,7 @@ function renderInvest(){
   showEls.forEach(([sel, disp]) => { const el = document.querySelector(sel); if(el) el.style.display = isAll ? 'none' : ''; });
   document.getElementById('invest-fx-row').style.display = isAll ? 'flex' : 'none';
   document.getElementById('invest-owner-title').textContent = isAll ? '사람별 합산 (모든 구분)' : '소유자별 합계';
+  document.getElementById('invest-owner-title').style.display = '';
   if(isAll){
     if(investEditMode){ investEditMode = false; const eb = document.getElementById('invest-edit-btn'); eb.textContent = '편집'; eb.classList.remove('on'); }
     renderInvestAll();
@@ -1895,7 +1896,9 @@ function renderInvest(){
 
   const ownerSumEl = document.getElementById('invest-owner-summary');
   const ownerKeys = [...investOwners(), ...[...new Set(entries.map(([id, e]) => investOwnerOf(e)))].filter(o => !investOwners().includes(o))];
-  ownerSumEl.innerHTML = ownerKeys.map(o => {
+  const summaryOwners = ownerKeys.filter(o => entries.some(([id, e]) => investOwnerOf(e) === o));
+  document.getElementById('invest-owner-title').style.display = summaryOwners.length ? '' : 'none';
+  ownerSumEl.innerHTML = summaryOwners.map(o => {
     const arr = entries.filter(([id, e]) => investOwnerOf(e) === o);
     const oc = arr.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.avgPrice) || 0), 0);
     const ov = arr.reduce((t, [id, e]) => t + (Number(e.shares) || 0) * (Number(e.price ?? e.avgPrice) || 0), 0);

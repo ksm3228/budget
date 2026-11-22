@@ -2060,7 +2060,7 @@ function renderMemo(){
     const form = document.createElement('div');
     form.className = 'memo-add-form';
     const ta = document.createElement('textarea');
-    ta.rows = 2;
+    ta.rows = 1;
     ta.placeholder = '내용 기록';
     ta.dataset.memoKey = 'add:' + id;
     ta.value = memoDrafts[id] || '';

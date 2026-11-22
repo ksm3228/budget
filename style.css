@@ -358,7 +358,8 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .memo-entry .mdate{ font-size:10.5px; color:var(--sub); margin-top:2px; }
 .memo-entry .mdel{ border:none; background:none; color:var(--sub); font-size:14px; cursor:pointer; flex:0 0 auto; padding:0 2px; }
 .memo-add-form{ display:flex; gap:6px; align-items:flex-end; }
-.memo-add-form textarea{ flex:1; min-width:0; max-height:60vh; overflow-y:auto; resize:none; border:1px solid var(--line); border-radius:8px; padding:7px 8px; font-size:16px; font-family:inherit; background:#fff; resize:vertical; }
+.memo-add-form textarea{ flex:1; min-width:0; max-height:60vh; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:16px; line-height:1.4; font-family:inherit; background:#fff; resize:none; }
+.memo-add-form button{ padding:7px 12px; }
 .memo-empty{ color:var(--sub); font-size:12.5px; text-align:center; padding:14px 0; }
 
 /* 상단 고정 (편집/검색) */

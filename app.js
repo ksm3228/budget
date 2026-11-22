@@ -1433,7 +1433,7 @@ function buildItemRow(item){
       linkBtn.textContent = `📈 ${investKey} 세부내역 보기`;
       linkBtn.onclick = () => openInvestSection(investKey);
       main.appendChild(linkBtn);
-      const noteTxt = investAssetNote(investKey);
+      const noteTxt = investAssetNote(investKey, investOwnerForAssetItem(item));
       if(noteTxt){
         const note = document.createElement('div');
         note.className = 'invest-link-note';
@@ -1709,8 +1709,19 @@ function investKeyForAssetItem(item){
 }
 
 // 순금융자산 항목 옆에 표시할 투자내역 평가금액(참고용, 금액/합계에는 영향 없음)
-function investAssetNote(sec){
-  const arr = Object.values(investData[sec] || {});
+const INVEST_OWNER_ALIASES = { '아내': ['정현'], '나': ['본인'] };
+// 자산 항목 이름/카테고리에서 소유자 판별 (예: "정현 ISA" → 아내). 못 찾으면 null
+function investOwnerForAssetItem(item){
+  const hay = ((item.name || '') + ' ' + (item.category || ''));
+  const tokens = hay.split(/[\s/·,()\[\]]+/).filter(Boolean);
+  for(const o of investOwners()){
+    const names = [o, ...(INVEST_OWNER_ALIASES[o] || [])];
+    if(names.some(n => n === '나' ? tokens.includes('나') : hay.includes(n))) return o;
+  }
+  return null;
+}
+function investAssetNote(sec, owner){
+  const arr = Object.values(investData[sec] || {}).filter(e => !owner || investOwnerOf(e) === owner);
   if(!arr.length) return '';
   const isUsd = sec === '해외주식';
   if(isUsd && !(investFx > 0)) return '투자내역 평가: 환율 미입력(전체 탭에서 입력하면 표시)';
@@ -1724,6 +1735,7 @@ function investAssetNote(sec){
     by[o] = (by[o] || 0) + v;
   });
   const f = (n) => Math.round(n).toLocaleString('ko-KR') + '원';
+  if(owner) return `투자내역 평가(${owner}) ${f(total)}`;
   const parts = Object.entries(by).map(([o, v]) => `${o} ${f(v)}`).join(' · ');
   return `투자내역 평가 ${f(total)} (${parts})`;
 }

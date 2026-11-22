@@ -98,6 +98,7 @@ onAuthStateChanged(auth, async (user) => {
     currentYm = availableMonths.length ? availableMonths[availableMonths.length-1] : ymOf(new Date());
     subscribeMonth(currentYm);
     refreshDashButtonLabel();
+    startAssetInvestSync();
   } else {
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('app-screen').style.display = 'none';
@@ -1432,6 +1433,13 @@ function buildItemRow(item){
       linkBtn.textContent = `📈 ${investKey} 세부내역 보기`;
       linkBtn.onclick = () => openInvestSection(investKey);
       main.appendChild(linkBtn);
+      const noteTxt = investAssetNote(investKey);
+      if(noteTxt){
+        const note = document.createElement('div');
+        note.className = 'invest-link-note';
+        note.textContent = noteTxt;
+        main.appendChild(note);
+      }
     }
   }
 
@@ -1698,6 +1706,36 @@ let investPendingOwner = null;
 function investKeyForAssetItem(item){
   const hay = ((item.name || '') + ' ' + (item.category || '')).toLowerCase();
   return INVEST_SECTIONS.find(k => hay.includes(k.toLowerCase()) || (INVEST_ALIASES[k] || []).some(al => hay.includes(al.toLowerCase()))) || null;
+}
+
+// 순금융자산 항목 옆에 표시할 투자내역 평가금액(참고용, 금액/합계에는 영향 없음)
+function investAssetNote(sec){
+  const arr = Object.values(investData[sec] || {});
+  if(!arr.length) return '';
+  const isUsd = sec === '해외주식';
+  if(isUsd && !(investFx > 0)) return '투자내역 평가: 환율 미입력(전체 탭에서 입력하면 표시)';
+  const mul = isUsd ? investFx : 1;
+  const by = {};
+  let total = 0;
+  arr.forEach(e => {
+    const v = (Number(e.shares) || 0) * (Number(e.price) || 0) * mul;
+    total += v;
+    const o = investOwnerOf(e);
+    by[o] = (by[o] || 0) + v;
+  });
+  const f = (n) => Math.round(n).toLocaleString('ko-KR') + '원';
+  const parts = Object.entries(by).map(([o, v]) => `${o} ${f(v)}`).join(' · ');
+  return `투자내역 평가 ${f(total)} (${parts})`;
+}
+
+// 로그인 후 항상 켜두는 투자내역 구독: 순금융자산 연동 표시용
+let assetInvestStarted = false;
+function startAssetInvestSync(){
+  if(assetInvestStarted) return;
+  assetInvestStarted = true;
+  const refresh = () => { if(!activeDashboard && Object.keys(currentData).length) renderMonth(); };
+  onValue(ref(db, INVEST_PATH), (snap) => { investData = snap.exists() ? snap.val() : {}; refresh(); });
+  onValue(ref(db, INVEST_FX_PATH), (snap) => { investFx = snap.exists() ? (Number(snap.val()) || 0) : 0; refresh(); });
 }
 
 function subscribeInvest(){

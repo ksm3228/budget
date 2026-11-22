@@ -1675,6 +1675,8 @@ const INVEST_ALIASES = { '연저펀': ['연금저축'] };
 let investData = {};
 let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
+const INVEST_FX_PATH = 'budget_app/investFx';
+let investFx = 0;
 const INVEST_BASE_OWNERS = ['나','아내','어머니'];
 const INVEST_OWNERS_PATH = 'budget_app/investOwners';
 let investCustomOwners = [];
@@ -1708,7 +1710,17 @@ function subscribeInvest(){
     investCustomOwners = Object.values(v).map(x => String(x)).filter(Boolean);
     renderInvest();
   });
-  investListener = () => { off1(); off2(); };
+  const off3 = onValue(ref(db, INVEST_FX_PATH), (snap) => {
+    investFx = snap.exists() ? (Number(snap.val()) || 0) : 0;
+    renderInvest();
+  });
+  investListener = () => { off1(); off2(); off3(); };
+  const fxInput = document.getElementById('invest-fx-input');
+  fxInput.onblur = () => {
+    const v = parseFloat(String(fxInput.value).replace(/[^0-9.]/g, '')) || 0;
+    set(ref(db, INVEST_FX_PATH), v).catch(er => alert('저장 실패: ' + er.message));
+  };
+  fxInput.onkeydown = (ev) => { if(ev.key === 'Enter') fxInput.blur(); };
   const keyInput = document.getElementById('invest-api-key');
   const savedKey = localStorage.getItem('anthropic_api_key');
   if(savedKey && !keyInput.value) keyInput.value = savedKey;
@@ -1772,13 +1784,91 @@ window.addInvestHolding = () => {
     .catch(er => alert('저장 실패: ' + er.message));
 };
 
+
+function renderInvestAll(){
+  const fx = investFx > 0 ? investFx : 0;
+  const fxInput = document.getElementById('invest-fx-input');
+  if(document.activeElement !== fxInput) fxInput.value = fx ? String(fx) : '';
+
+  const rows = [];
+  INVEST_SECTIONS.forEach(sec => {
+    Object.values(investData[sec] || {}).forEach(e => {
+      const sh = Number(e.shares) || 0;
+      const avg = Number(e.avgPrice) || 0;
+      const pr = Number(e.price ?? e.avgPrice) || 0;
+      rows.push({ sec, owner: investOwnerOf(e), cost: sh * avg, value: sh * pr });
+    });
+  });
+
+  const overseasCount = rows.filter(r => r.sec === '해외주식').length;
+  const sumUsd = (arr, k) => arr.filter(r => r.sec === '해외주식').reduce((t, r) => t + r[k], 0);
+  // 원화 합산: 해외주식은 환율이 있을 때만 환산해서 포함
+  const krw = (arr, k) => arr.reduce((t, r) => t + (r.sec === '해외주식' ? (fx ? r[k] * fx : 0) : r[k]), 0);
+
+  document.getElementById('invest-fx-note').textContent = overseasCount === 0
+    ? '해외주식 보유가 없어 환율은 필요 없어요'
+    : (fx ? '해외주식을 이 환율로 원화 환산해 합계에 포함했어요' : '환율을 입력하면 해외주식이 원화로 합산돼요 (지금은 합계에서 제외)');
+
+  const cost = krw(rows, 'cost'), value = krw(rows, 'value');
+  const pl = value - cost, rate = cost > 0 ? (pl / cost) * 100 : 0;
+  document.getElementById('invest-summary').innerHTML = `
+    <div class="samsung-total-box"><div class="t">매입금액 합계</div><div class="v">${investMoney('국내주식', cost)}</div></div>
+    <div class="samsung-total-box"><div class="t">평가금액 합계</div><div class="v">${investMoney('국내주식', value)}</div></div>
+    <div class="samsung-total-box"><div class="t">평가손익</div><div class="v ${investCls(pl)}">${investSigned('국내주식', pl)} (${rate > 0 ? '+' : ''}${rate.toFixed(1)}%)</div></div>
+  `;
+
+  const listEl = document.getElementById('invest-list');
+  listEl.innerHTML = '';
+  const ownerEl = document.getElementById('invest-owner-summary');
+  const ownerKeys = [...investOwners(), ...[...new Set(rows.map(r => r.owner))].filter(o => !investOwners().includes(o))]
+    .filter(o => rows.some(r => r.owner === o));
+  if(ownerKeys.length === 0){
+    ownerEl.innerHTML = '<div class="samsung-empty">등록된 종목이 아직 없어요. 구분별 화면에서 종목을 추가해보세요.</div>';
+    return;
+  }
+
+  const plHTML = (sec, p, rt) => `<span class="${investCls(p)}">${investSigned(sec, p)} (${rt > 0 ? '+' : ''}${rt.toFixed(1)}%)</span>`;
+  ownerEl.innerHTML = ownerKeys.map(o => {
+    const mine = rows.filter(r => r.owner === o);
+    const oc = krw(mine, 'cost'), ov = krw(mine, 'value');
+    const op = ov - oc, orate = oc > 0 ? (op / oc) * 100 : 0;
+    const hasOverseas = mine.some(r => r.sec === '해외주식');
+    const subs = INVEST_SECTIONS.map(sec => {
+      const arr = mine.filter(r => r.sec === sec);
+      if(arr.length === 0) return '';
+      const sc = arr.reduce((t, r) => t + r.cost, 0), sv = arr.reduce((t, r) => t + r.value, 0);
+      const sp = sv - sc, sr = sc > 0 ? (sp / sc) * 100 : 0;
+      const conv = (sec === '해외주식' && fx) ? ` <span style="color:var(--sub);font-weight:600">(≈${investMoney('국내주식', sv * fx)})</span>` : '';
+      return `<div class="r"><span>${sec}</span><span class="a">${investMoney(sec, sv)}${conv}</span>${plHTML(sec, sp, sr)}</div>`;
+    }).join('');
+    const note = (hasOverseas && !fx) ? `<div class="invest-all-note">※ 해외주식 ${investMoney('해외주식', sumUsd(mine, 'value'))}은 환율 미입력으로 위 합계에서 제외됐어요</div>` : '';
+    return `<div class="invest-all-card">
+      <div class="invest-all-head"><span class="o">${escapeHtml(o)}</span>
+        <div><span class="k">평가금액 (매입 ${investMoney('국내주식', oc)})</span><span class="v">${investMoney('국내주식', ov)}</span></div>
+        <div><span class="k">평가손익</span><span class="v ${investCls(op)}">${investSigned('국내주식', op)} (${orate > 0 ? '+' : ''}${orate.toFixed(1)}%)</span></div></div>
+      <div class="invest-all-sub">${subs}</div>${note}</div>`;
+  }).join('');
+}
+
 function renderInvest(){
   const sec = investSection;
   const tabsEl = document.getElementById('invest-section-tabs');
-  tabsEl.innerHTML = INVEST_SECTIONS.map(k => {
-    const n = Object.keys(investData[k] || {}).length;
+  tabsEl.innerHTML = ['전체', ...INVEST_SECTIONS].map(k => {
+    const n = k === '전체' ? 0 : Object.keys(investData[k] || {}).length;
     return `<button class="invest-chip${k === sec ? ' active' : ''}" onclick="setInvestSection('${k}')">${k}${n ? ` <span class="c">${n}</span>` : ''}</button>`;
   }).join('');
+
+  // 전체 보기 전용 화면 / 구분별 화면 전환
+  const isAll = sec === '전체';
+  const showEls = [['.invest-form', 'flex'], ['.invest-ocr', 'block'], ['#invest-add-title', 'block'], ['#invest-edit-btn', 'inline-block']];
+  showEls.forEach(([sel, disp]) => { const el = document.querySelector(sel); if(el) el.style.display = isAll ? 'none' : ''; });
+  document.getElementById('invest-fx-row').style.display = isAll ? 'flex' : 'none';
+  document.getElementById('invest-owner-title').textContent = isAll ? '사람별 합산 (모든 구분)' : '소유자별 합계';
+  if(isAll){
+    if(investEditMode){ investEditMode = false; const eb = document.getElementById('invest-edit-btn'); eb.textContent = '편집'; eb.classList.remove('on'); }
+    renderInvestAll();
+    return;
+  }
 
   const ownerSel = document.getElementById('invest-in-owner');
   const keepOwner = investPendingOwner || ownerSel.value || '나';

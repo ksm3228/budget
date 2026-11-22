@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>가계부/메모장</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-<link rel="stylesheet" href="style.css?v=12.1">
+<link rel="stylesheet" href="style.css?v=12.2">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v12.1</span></h1>
+    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v12.2</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -197,7 +197,12 @@
       </div>
       <div class="invest-section-tabs" id="invest-section-tabs"></div>
       <div id="invest-summary" class="samsung-totals-row"></div>
-      <div class="invest-owner-title">소유자별 합계</div>
+      <div class="invest-fx" id="invest-fx-row" style="display:none">
+        <span class="l">환율 (원/$)</span>
+        <input type="text" id="invest-fx-input" inputmode="decimal" placeholder="예: 1400">
+        <span class="n" id="invest-fx-note"></span>
+      </div>
+      <div class="invest-owner-title" id="invest-owner-title">소유자별 합계</div>
       <div id="invest-owner-summary" class="invest-owner-summary"></div>
       <div class="invest-add-title" id="invest-add-title"></div>
       <div class="invest-form">
@@ -328,6 +333,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="app.js?v=12.1"></script>
+<script type="module" src="app.js?v=12.2"></script>
 </body>
 </html>

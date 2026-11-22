@@ -310,6 +310,8 @@ async function renderDashboard(){
   }
 
   chartEl.innerHTML = `<svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 320)}" height="200" style="display:block;">${bars}${avgLine}</svg>`;
+  // 가장 최근 달이 보이도록 오른쪽 끝으로 스크롤
+  requestAnimationFrame(() => { chartEl.scrollLeft = chartEl.scrollWidth; });
 
   const withData = results.filter(r => r.total > 0);
   const last = results[results.length-1];

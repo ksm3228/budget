@@ -1709,6 +1709,10 @@ function subscribeInvest(){
     renderInvest();
   });
   investListener = () => { off1(); off2(); };
+  const keyInput = document.getElementById('invest-api-key');
+  const savedKey = localStorage.getItem('anthropic_api_key');
+  if(savedKey && !keyInput.value) keyInput.value = savedKey;
+  keyInput.onchange = () => localStorage.setItem('anthropic_api_key', keyInput.value.trim());
 }
 
 window.toggleInvestEdit = () => {
@@ -1891,6 +1895,189 @@ function renderInvest(){
     }
     listEl.appendChild(row);
   });
+}
+
+
+// ===== 투자내역: 캡처 사진으로 종목 등록 =====
+let investOcrRows = [];
+let investOcrCtx = null;
+
+async function investImageToBase64(file){
+  const okTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+  const readRaw = () => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = (e) => resolve(e.target.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+  if(okTypes.includes(file.type) && file.size <= 3.5 * 1024 * 1024){
+    return { data: await readRaw(), mediaType: file.type };
+  }
+  // 너무 크거나 지원하지 않는 형식이면 JPEG로 변환
+  const url = URL.createObjectURL(file);
+  try{
+    const img = await new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = url; });
+    const scale = Math.min(1, 3000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return { data: canvas.toDataURL('image/jpeg', 0.88).split(',')[1], mediaType: 'image/jpeg' };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function extractInvestFromImage(file, apiKey, sec){
+  const { data, mediaType } = await investImageToBase64(file);
+  const currencyNote = sec === '해외주식'
+    ? '현재 구분은 해외주식이므로 금액은 달러(USD) 기준 가격을 사용하세요(원화 환산 금액이 아니라 종목의 달러 가격). 달러 가격이 화면에 없으면 해당 값은 null로 두세요.'
+    : '금액은 원화(원) 기준입니다.';
+  const prompt = `이 이미지는 증권사/투자 앱의 보유 종목(잔고) 화면 캡처입니다. 화면에 보이는 모든 보유 종목을 읽어서 JSON 배열로만 응답하고 다른 설명은 하지 마세요. 현재 구분: ${sec}. ${currencyNote}
+각 종목의 필드: "name"(종목명), "shares"(보유수량=구입주수, 펀드/금이면 좌수나 수량), "avgPrice"(매입평균가=평단가, 1주(1좌)당 금액), "price"(현재가, 1주(1좌)당 금액), "buyTotal"(총 매입금액, 화면에 있을 때만), "evalTotal"(총 평가금액, 화면에 있을 때만). 숫자는 쉼표와 단위 없이 숫자만 쓰고, 화면에 없는 값은 null로 두세요.
+주의: 맨 위 계좌 요약(총 평가금액, 총 손익 등)은 종목이 아니므로 제외하고, 수익률/등락률(%) 값을 가격으로 착각하지 마세요. 1주당 가격과 총액을 혼동하지 마세요.
+형식: [{"name":"종목명","shares":숫자,"avgPrice":숫자 또는 null,"price":숫자 또는 null,"buyTotal":숫자 또는 null,"evalTotal":숫자 또는 null}]`;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: 3000,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+        { type: 'text', text: prompt }
+      ]}]
+    })
+  });
+  const body = await res.json();
+  if(body.error) throw new Error(body.error.message || 'API 오류');
+  const textBlock = (body.content || []).find(c => c.type === 'text');
+  if(!textBlock) throw new Error('응답에서 텍스트를 찾지 못했어요');
+  const raw = textBlock.text.replace(/```json|```/g, '').trim();
+  const s = raw.indexOf('['), e = raw.lastIndexOf(']');
+  if(s < 0 || e < s) throw new Error('종목 목록을 찾지 못했어요');
+  const arr = JSON.parse(raw.slice(s, e + 1));
+  if(!Array.isArray(arr)) throw new Error('응답 형식이 달라요');
+  return arr;
+}
+
+function investNormName(n){ return String(n || '').replace(/\s+/g, '').toLowerCase(); }
+
+function investBuildOcrRows(rawRows, sec, owner){
+  const round = (v) => sec === '해외주식' ? Math.round(v * 100) / 100 : Math.round(v);
+  const existing = Object.entries(investData[sec] || {}).filter(([id, e]) => investOwnerOf(e) === owner);
+  const seen = new Set();
+  let dropped = 0;
+  const rows = [];
+  rawRows.forEach(r => {
+    const name = String(r.name || '').trim();
+    const shares = Number(r.shares) || 0;
+    let avg = Number(r.avgPrice) || 0;
+    let price = Number(r.price) || 0;
+    if(!avg && Number(r.buyTotal) > 0 && shares > 0) avg = Number(r.buyTotal) / shares;
+    if(!price && Number(r.evalTotal) > 0 && shares > 0) price = Number(r.evalTotal) / shares;
+    avg = round(avg); price = round(price);
+    const key = investNormName(name);
+    if(!key) return;
+    if(seen.has(key)){ dropped++; return; }
+    seen.add(key);
+    const ok = shares > 0 && avg > 0;
+    const match = existing.find(([id, e]) => investNormName(e.name) === key);
+    rows.push({ name, shares, avgPrice: avg, price: price > 0 ? price : avg, ok, existingId: match ? match[0] : null, include: ok });
+  });
+  return { rows, dropped };
+}
+
+window.extractInvestImages = async (input) => {
+  const files = Array.from(input.files || []);
+  input.value = '';
+  if(files.length === 0) return;
+  const keyInput = document.getElementById('invest-api-key');
+  const apiKey = keyInput.value.trim() || localStorage.getItem('anthropic_api_key') || '';
+  const statusEl = document.getElementById('invest-ocr-status');
+  if(!apiKey){ alert('Anthropic API 키를 먼저 입력해주세요'); return; }
+  localStorage.setItem('anthropic_api_key', apiKey);
+
+  const sec = investSection;
+  const owner = document.getElementById('invest-in-owner').value || '나';
+  const all = [];
+  const errors = [];
+  for(let i = 0; i < files.length; i++){
+    statusEl.textContent = `📷 ${i + 1}/${files.length}장 분석 중...`;
+    try{ all.push(...await extractInvestFromImage(files[i], apiKey, sec)); }
+    catch(er){ errors.push(`${files[i].name}: ${er.message}`); }
+  }
+  const { rows, dropped } = investBuildOcrRows(all, sec, owner);
+  investOcrRows = rows;
+  investOcrCtx = { sec, owner };
+  let msg = `분석 완료: 종목 ${rows.length}개 인식`;
+  if(dropped) msg += ` (여러 장에 겹친 ${dropped}개는 한 번만 반영)`;
+  if(errors.length) msg += ` · 실패 ${errors.length}장 (${errors.join(' / ')})`;
+  statusEl.textContent = msg;
+  renderInvestOcrPreview();
+};
+
+function renderInvestOcrPreview(){
+  const el = document.getElementById('invest-ocr-preview');
+  if(!investOcrCtx || investOcrRows.length === 0){ el.innerHTML = ''; return; }
+  const { sec, owner } = investOcrCtx;
+  el.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'invest-prev';
+  const title = document.createElement('div');
+  title.className = 'invest-prev-title';
+  title.textContent = `'${sec}' · 소유자 '${owner}'에 등록할 종목 (틀린 줄은 체크를 해제하세요)`;
+  box.appendChild(title);
+  investOcrRows.forEach((r, i) => {
+    const row = document.createElement('label');
+    row.className = 'invest-prev-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = r.include;
+    cb.disabled = !r.ok;
+    cb.onchange = () => { r.include = cb.checked; };
+    const info = document.createElement('div');
+    const badge = !r.ok ? '<span class="badge bad">정보 부족</span>' : (r.existingId ? '<span class="badge">기존 종목 갱신</span>' : '<span class="badge new">신규</span>');
+    info.innerHTML = `<div class="t">${escapeHtml(r.name)}${badge}</div>
+      <div class="s">${investQty(r.shares)}주 · 평단 ${investMoney(sec, r.avgPrice)} · 현재가 ${investMoney(sec, r.price)}</div>`;
+    row.append(cb, info);
+    box.appendChild(row);
+  });
+  const actions = document.createElement('div');
+  actions.className = 'invest-prev-actions';
+  const okBtn = document.createElement('button');
+  okBtn.textContent = '선택한 종목 등록';
+  okBtn.onclick = registerInvestOcrRows;
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'cancel';
+  cancelBtn.textContent = '취소';
+  cancelBtn.onclick = () => { investOcrRows = []; investOcrCtx = null; document.getElementById('invest-ocr-status').textContent = ''; renderInvestOcrPreview(); };
+  actions.append(okBtn, cancelBtn);
+  box.appendChild(actions);
+  el.appendChild(box);
+}
+
+async function registerInvestOcrRows(){
+  if(!investOcrCtx) return;
+  const { sec, owner } = investOcrCtx;
+  const picked = investOcrRows.filter(r => r.ok && r.include);
+  if(picked.length === 0){ alert('등록할 종목을 선택해주세요.'); return; }
+  const base = Date.now();
+  try{
+    await Promise.all(picked.map((r, i) => r.existingId
+      ? update(ref(db, `${INVEST_PATH}/${sec}/${r.existingId}`), { shares: r.shares, avgPrice: r.avgPrice, price: r.price })
+      : push(ref(db, `${INVEST_PATH}/${sec}`), { name: r.name, owner, shares: r.shares, avgPrice: r.avgPrice, price: r.price, ts: base + i })
+    ));
+    const upd = picked.filter(r => r.existingId).length;
+    document.getElementById('invest-ocr-status').textContent = `✅ ${picked.length}개 등록 완료 (신규 ${picked.length - upd}개, 갱신 ${upd}개)`;
+    investOcrRows = []; investOcrCtx = null;
+    renderInvestOcrPreview();
+  } catch(er){
+    alert('등록 실패: ' + er.message);
+  }
 }
 
 const MEMO_PATH = 'budget_app/memoNotes';

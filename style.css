@@ -406,3 +406,19 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-form button.invest-owner-add{ background:#fff; color:var(--accent); border:1px solid var(--accent); }
 .memo-row-name .mr{ display:flex; align-items:center; gap:6px; flex:0 0 auto; }
 .memo-row-name .mb-add{ border:none; background:var(--accent); color:#fff; border-radius:7px; padding:4px 12px; font-size:12px; font-weight:700; cursor:pointer; }
+.invest-ocr{ margin-bottom:14px; }
+.invest-ocr input#invest-api-key{ width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 12px; font-size:16px; font-family:inherit; margin-bottom:8px; background:#fff; }
+.invest-ocr-btn{ display:block; text-align:center; border:1px solid var(--accent); color:var(--accent); background:#fff; border-radius:10px; padding:11px; font-size:13px; font-weight:800; cursor:pointer; }
+.invest-prev{ border:1px solid var(--accent); border-radius:10px; background:#fff; padding:10px 12px; margin-top:10px; }
+.invest-prev-title{ font-size:12.5px; font-weight:800; color:var(--accent); margin-bottom:8px; }
+.invest-prev-row{ display:flex; gap:8px; align-items:flex-start; padding:7px 0; border-top:1px solid var(--line); font-size:13px; }
+.invest-prev-row:first-of-type{ border-top:none; }
+.invest-prev-row input[type=checkbox]{ margin-top:3px; flex:0 0 auto; width:18px; height:18px; }
+.invest-prev-row .t{ font-weight:800; color:var(--ink); }
+.invest-prev-row .s{ font-size:12px; color:var(--sub); margin-top:2px; }
+.invest-prev-row .badge{ font-size:10.5px; font-weight:800; border-radius:6px; padding:1px 6px; margin-left:6px; background:var(--accent-soft); color:var(--accent); }
+.invest-prev-row .badge.new{ background:#EEF3FB; color:#3F6FB5; }
+.invest-prev-row .badge.bad{ background:#FBEAEA; color:#D14B4B; }
+.invest-prev-actions{ display:flex; gap:8px; margin-top:10px; }
+.invest-prev-actions button{ flex:1; border:none; border-radius:8px; padding:10px; font-size:13px; font-weight:800; cursor:pointer; background:var(--accent); color:#fff; }
+.invest-prev-actions button.cancel{ background:#fff; color:var(--sub); border:1px solid var(--line); }

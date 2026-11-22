@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>가계부/메모장</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-<link rel="stylesheet" href="style.css?v=12.0">
+<link rel="stylesheet" href="style.css?v=12.1">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
 
 <div id="app-screen">
   <header class="top">
-    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v12.0</span></h1>
+    <h1>가계부/메모장 <span style="font-size:11px; font-weight:600; color:var(--sub); vertical-align:middle;">v12.1</span></h1>
     <div class="user-chip">
       <img id="user-avatar" src="">
       <button onclick="doSignOut()">로그아웃</button>
@@ -209,6 +209,13 @@
         <input type="text" id="invest-in-price" placeholder="현재가 (비우면 평단)" inputmode="decimal">
         <button onclick="addInvestHolding()">추가</button>
       </div>
+      <div class="invest-ocr">
+        <input type="text" id="invest-api-key" placeholder="Anthropic API 키 (삼성카드 사진 인식과 같은 키)">
+        <label for="invest-img-upload" class="invest-ocr-btn">📷 증권앱 캡처 올려서 등록 (여러 장 가능)</label>
+        <input type="file" id="invest-img-upload" accept="image/*" multiple style="display:none" onchange="extractInvestImages(this)">
+        <div class="samsung-status" id="invest-ocr-status"></div>
+        <div id="invest-ocr-preview"></div>
+      </div>
       <div id="invest-list" class="invest-list"></div>
     </div>
   </div>
@@ -321,6 +328,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="app.js?v=12.0"></script>
+<script type="module" src="app.js?v=12.1"></script>
 </body>
 </html>

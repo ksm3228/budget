@@ -343,14 +343,15 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .memo-name-form input{ flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:16px; font-family:inherit; background:#fff; }
 .memo-name-form button, .memo-add-form button{ border:none; background:var(--accent); color:#fff; border-radius:8px; padding:8px 12px; font-size:12.5px; font-weight:700; cursor:pointer; flex:0 0 auto; }
 .memo-rows{ display:flex; flex-direction:column; gap:10px; }
-.memo-row{ display:flex; align-items:stretch; gap:8px; }
-.memo-row-name{ flex:0 0 27%; min-width:0; background:var(--accent-soft); border-radius:10px; padding:10px 8px; display:flex; flex-direction:column; justify-content:space-between; gap:6px; }
+.memo-row{ display:flex; flex-direction:column; align-items:stretch; gap:0; }
+.memo-row-name{ min-width:0; background:var(--accent-soft); border-radius:10px 10px 0 0; padding:6px 10px; display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:8px; }
+.memo-row-name > div:first-child{ display:flex; align-items:baseline; gap:8px; min-width:0; }
 .memo-row-name .mn{ font-size:13.5px; font-weight:800; color:var(--accent); word-break:break-all; }
-.memo-row-name .mc{ font-size:11px; color:var(--sub); font-weight:600; margin-top:2px; }
+.memo-row-name .mc{ font-size:11px; color:var(--sub); font-weight:600; white-space:nowrap; }
 .memo-row-name .ma{ display:flex; justify-content:flex-start; gap:2px; }
 .memo-row-name .ma button{ border:none; background:rgba(255,255,255,.7); color:var(--ink); font-size:13px; cursor:pointer; padding:4px 8px; border-radius:6px; }
 .memo-row-name .ma button:disabled{ opacity:.3; cursor:default; }
-.memo-row-body{ flex:1; min-width:0; background:#FAFAF7; border-radius:10px; padding:8px; display:flex; flex-direction:column; gap:6px; }
+.memo-row-body{ flex:1; min-width:0; background:#FAFAF7; border-radius:0 0 10px 10px; padding:8px; display:flex; flex-direction:column; gap:6px; }
 .memo-entry{ display:flex; gap:6px; align-items:flex-start; background:#fff; border-radius:8px; padding:7px 8px; }
 .memo-entry .mt{ flex:1; min-width:0; }
 .memo-entry .mtext-edit{ display:block; width:100%; border:1px solid transparent; border-radius:6px; background:transparent; padding:2px 4px; margin:-2px -4px; font-size:16px; font-family:inherit; color:var(--ink); line-height:1.4; resize:none; overflow:hidden; }

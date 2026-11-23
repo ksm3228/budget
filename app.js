@@ -1800,15 +1800,59 @@ function subscribeInvest(){
   keyInput.onchange = () => localStorage.setItem('anthropic_api_key', keyInput.value.trim());
 }
 
+let investQuoteMsg = '';
 function renderInvestQuoteNote(msg){
   const el = document.getElementById('invest-refresh-note');
   if(!el) return;
-  if(msg){ el.textContent = msg; return; }
+  if(msg !== undefined) investQuoteMsg = msg;
+  if(investQuoteMsg){ el.textContent = investQuoteMsg; return; }
   if(!investPriceTs){ el.textContent = ''; return; }
   const d = new Date(investPriceTs);
   const p = (n) => String(n).padStart(2, '0');
   el.textContent = `마지막 갱신 ${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+window.autoFillInvestTickers = async () => {
+  const btn = document.getElementById('invest-ticker-btn');
+  const apiKey = (document.getElementById('invest-api-key').value || localStorage.getItem('anthropic_api_key') || '').trim();
+  if(!apiKey){ alert('사진 등록에 쓰는 Anthropic API 키를 먼저 입력해주세요 (사진 등록 영역의 키 칸).'); return; }
+  const items = [];
+  INVEST_SECTIONS.forEach(sec => Object.entries(investData[sec] || {}).forEach(([id, e]) => {
+    if(!String(e.ticker || '').trim()) items.push({ k: `${sec}/${id}`, sec, name: e.name || '', price: e.price });
+  }));
+  if(!items.length){ alert('종목코드가 비어 있는 종목이 없어요.'); return; }
+  btn.disabled = true;
+  renderInvestQuoteNote('종목코드 찾는 중…');
+  try{
+    const prompt = `아래 보유 종목의 구글 파이낸스(GOOGLEFINANCE) 티커를 알려주세요. 형식은 "거래소:코드"입니다. 국내 주식/ETF는 "KRX:6자리코드"(예: KRX:005930), 미국은 "NASDAQ:AAPL" 또는 "NYSE:KO" 처럼 씁니다. 확실하지 않거나 펀드, 금 현물, 개별 펀드처럼 구글 파이낸스에 없을 것 같은 종목은 null로 두세요. 추측으로 채우지 마세요.
+종목(구분은 참고용): ${JSON.stringify(items.map(i => ({ k: i.k, 구분: i.sec, 종목명: i.name, 현재가: i.price })))}
+JSON 객체로만 응답하세요: {"k값":"티커 또는 null", ...}`;
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] })
+    });
+    const body = await res.json();
+    if(body.error) throw new Error(body.error.message || 'API 오류');
+    const txt = ((body.content || []).find(c => c.type === 'text') || {}).text || '';
+    const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
+    if(s < 0 || e < s) throw new Error('응답을 읽지 못했어요');
+    const map = JSON.parse(txt.slice(s, e + 1));
+    const upd = {};
+    let ok = 0; const none = [];
+    items.forEach(i => {
+      const t = String(map[i.k] || '').trim().toUpperCase();
+      if(/^[A-Z]+:[A-Z0-9.\-]+$/.test(t)){ upd[`${INVEST_PATH}/${i.k}/ticker`] = t; ok++; } else none.push(i.name);
+    });
+    if(ok) await update(ref(db), upd);
+    renderInvestQuoteNote(`${ok}종목 코드 입력${none.length ? ` · 못 찾음 ${none.length}(${none.join(', ')}) → 편집에서 직접 입력` : ''} · 갱신 후 가격이 이상하면 코드를 확인하세요`);
+  }catch(er){
+    renderInvestQuoteNote('');
+    alert('종목코드 찾기 실패: ' + er.message);
+  }finally{
+    btn.disabled = false;
+  }
+};
 
 window.refreshInvestPrices = async () => {
   const btn = document.getElementById('invest-refresh-btn');
@@ -1818,7 +1862,7 @@ window.refreshInvestPrices = async () => {
   const targets = [];
   INVEST_SECTIONS.forEach(sec => Object.entries(investData[sec] || {}).forEach(([id, e]) => {
     const t = String(e.ticker || '').trim();
-    if(t) targets.push({ path: `${INVEST_PATH}/${sec}/${id}/price`, ticker: t });
+    if(t) targets.push({ path: `${INVEST_PATH}/${sec}/${id}/price`, ticker: t, old: e.price, name: e.name || '' });
   }));
   const hasOverseas = Object.keys(investData['해외주식'] || {}).length > 0;
   if(!targets.length){ alert('종목코드가 입력된 종목이 없어요. 편집 모드에서 종목코드를 입력해주세요.'); return; }
@@ -1833,15 +1877,20 @@ window.refreshInvestPrices = async () => {
     const prices = json.prices || {};
     const upd = {};
     let ok = 0, fail = [];
+    const odd = [];
     targets.forEach(t => {
       const v = Number(prices[t.ticker]);
-      if(v > 0){ upd[t.path] = v; ok++; } else fail.push(t.ticker);
+      if(v > 0){
+        const old = Number(t.old) || 0;
+        if(old > 0 && (v / old > 2 || v / old < 0.5)) odd.push(`${t.name} ${t.ticker}`);
+        upd[t.path] = v; ok++;
+      } else fail.push(t.ticker);
     });
     const fx = Number(prices['CURRENCY:USDKRW']);
     if(hasOverseas && fx > 0) upd[INVEST_FX_PATH] = Math.round(fx * 100) / 100;
     upd[INVEST_TS_PATH] = Date.now();
     await update(ref(db), upd);
-    renderInvestQuoteNote(`${ok}종목 갱신${fail.length ? ` · 실패 ${fail.length}(${[...new Set(fail)].join(', ')})` : ''}${hasOverseas && fx > 0 ? ` · 환율 ${fx.toFixed(1)}` : ''}`);
+    renderInvestQuoteNote(`${ok}종목 갱신${odd.length ? ` · ⚠ 기존 가격과 2배 이상 차이: ${odd.join(', ')} (코드 확인)` : ''}${fail.length ? ` · 실패 ${fail.length}(${[...new Set(fail)].join(', ')})` : ''}${hasOverseas && fx > 0 ? ` · 환율 ${fx.toFixed(1)}` : ''}`);
   }catch(er){
     renderInvestQuoteNote('');
     alert('시세 조회 실패: ' + er.message + '\n(웹앱 주소·배포 권한 "모든 사용자"를 확인해주세요)');

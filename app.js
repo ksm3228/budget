@@ -1380,6 +1380,29 @@ function buildItemRow(item){
     calcRow.appendChild(yearsInput);
     main.appendChild(calcRow);
 
+    // 투자내역 연동: 이름에 구분(예: 연저펀)과 사람(예: 성민/정현)이 있으면 총 수령액을 평가금액으로 자동 채움
+    const pKeys = investKeysForAssetItem(item);
+    const pOwner = investOwnerForAssetItem(item);
+    if(pKeys.length === 1 && pOwner){
+      const val = investHoldingValue(pKeys[0], pOwner);
+      if(val && val > 0){
+        const rounded = Math.round(val);
+        const linkNote = document.createElement('div');
+        linkNote.className = 'invest-link-note';
+        linkNote.textContent = `📈 투자내역 연동: ${pOwner} ${pKeys[0]} 평가금액 ${rounded.toLocaleString('ko-KR')}원이 총 수령액에 자동 반영돼요`;
+        main.appendChild(linkNote);
+        row.classList.add('has-invest');
+        principalInput.value = rounded.toLocaleString('ko-KR');
+        calcRow.style.display = 'flex';
+        const guardKey = item.id + ':' + rounded;
+        if(Number(item.principal) !== rounded && !pensionSyncGuard[guardKey]){
+          pensionSyncGuard[guardKey] = true;
+          updateField(item.id, 'principal', rounded);
+          maybeRecalcPension(item.id, rounded, item.payoutYears);
+        }
+      }
+    }
+
     calcToggle.onclick = () => {
       calcRow.style.display = calcRow.style.display === 'none' ? 'flex' : 'none';
     };
@@ -1729,6 +1752,16 @@ function investOwnerForAssetItem(item){
   }
   return null;
 }
+// 특정 구분·소유자의 투자내역 평가금액(원). 해외주식은 환율 없으면 null
+function investHoldingValue(sec, owner){
+  const isUsd = sec === '해외주식';
+  if(isUsd && !(investFx > 0)) return null;
+  const mul = isUsd ? investFx : 1;
+  return Object.values(investData[sec] || {})
+    .filter(e => investOwnerOf(e) === owner)
+    .reduce((t, e) => t + (Number(e.shares) || 0) * (Number(e.price) || 0) * mul, 0);
+}
+const pensionSyncGuard = {};
 function investAssetNote(sec, owner){
   const arr = Object.values(investData[sec] || {}).filter(e => !owner || investOwnerOf(e) === owner);
   if(!arr.length) return '';

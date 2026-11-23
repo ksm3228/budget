@@ -1687,6 +1687,10 @@ let investSection = INVEST_SECTIONS[0];
 let investEditMode = false;
 const INVEST_FX_PATH = 'budget_app/investFx';
 let investFx = 0;
+const INVEST_SHEET_PATH = 'budget_app/investSheetUrl';
+const INVEST_TS_PATH = 'budget_app/investPriceTs';
+let investSheetUrl = '';
+let investPriceTs = 0;
 const INVEST_BASE_OWNERS = ['나','아내','어머니','하준','하연','하은'];
 const INVEST_OWNERS_PATH = 'budget_app/investOwners';
 let investCustomOwners = [];
@@ -1769,7 +1773,21 @@ function subscribeInvest(){
     investFx = snap.exists() ? (Number(snap.val()) || 0) : 0;
     renderInvest();
   });
-  investListener = () => { off1(); off2(); off3(); };
+  const off4 = onValue(ref(db, INVEST_SHEET_PATH), (snap) => {
+    investSheetUrl = snap.exists() ? String(snap.val() || '') : '';
+    const el = document.getElementById('invest-sheet-url');
+    if(el && document.activeElement !== el) el.value = investSheetUrl;
+  });
+  const off5 = onValue(ref(db, INVEST_TS_PATH), (snap) => {
+    investPriceTs = snap.exists() ? (Number(snap.val()) || 0) : 0;
+    renderInvestQuoteNote();
+  });
+  investListener = () => { off1(); off2(); off3(); off4(); off5(); };
+  const urlEl = document.getElementById('invest-sheet-url');
+  urlEl.onblur = () => {
+    const v = urlEl.value.trim();
+    if(v !== investSheetUrl) set(ref(db, INVEST_SHEET_PATH), v).catch(er => alert('저장 실패: ' + er.message));
+  };
   const fxInput = document.getElementById('invest-fx-input');
   fxInput.onblur = () => {
     const v = parseFloat(String(fxInput.value).replace(/[^0-9.]/g, '')) || 0;
@@ -1781,6 +1799,56 @@ function subscribeInvest(){
   if(savedKey && !keyInput.value) keyInput.value = savedKey;
   keyInput.onchange = () => localStorage.setItem('anthropic_api_key', keyInput.value.trim());
 }
+
+function renderInvestQuoteNote(msg){
+  const el = document.getElementById('invest-refresh-note');
+  if(!el) return;
+  if(msg){ el.textContent = msg; return; }
+  if(!investPriceTs){ el.textContent = ''; return; }
+  const d = new Date(investPriceTs);
+  const p = (n) => String(n).padStart(2, '0');
+  el.textContent = `마지막 갱신 ${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+window.refreshInvestPrices = async () => {
+  const btn = document.getElementById('invest-refresh-btn');
+  const urlEl = document.getElementById('invest-sheet-url');
+  const url = (urlEl.value || investSheetUrl || '').trim();
+  if(!url){ alert('"시세 연동 설정"에 Apps Script 웹앱 주소를 먼저 입력해주세요.'); urlEl.closest('details').open = true; urlEl.focus(); return; }
+  const targets = [];
+  INVEST_SECTIONS.forEach(sec => Object.entries(investData[sec] || {}).forEach(([id, e]) => {
+    const t = String(e.ticker || '').trim();
+    if(t) targets.push({ path: `${INVEST_PATH}/${sec}/${id}/price`, ticker: t });
+  }));
+  const hasOverseas = Object.keys(investData['해외주식'] || {}).length > 0;
+  if(!targets.length){ alert('종목코드가 입력된 종목이 없어요. 편집 모드에서 종목코드를 입력해주세요.'); return; }
+  const tickers = [...new Set([...targets.map(t => t.ticker), ...(hasOverseas ? ['CURRENCY:USDKRW'] : [])])];
+  btn.disabled = true;
+  renderInvestQuoteNote('시세 조회 중…');
+  try{
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'tickers=' + encodeURIComponent(tickers.join(',')));
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if(json.error) throw new Error(json.error);
+    const prices = json.prices || {};
+    const upd = {};
+    let ok = 0, fail = [];
+    targets.forEach(t => {
+      const v = Number(prices[t.ticker]);
+      if(v > 0){ upd[t.path] = v; ok++; } else fail.push(t.ticker);
+    });
+    const fx = Number(prices['CURRENCY:USDKRW']);
+    if(hasOverseas && fx > 0) upd[INVEST_FX_PATH] = Math.round(fx * 100) / 100;
+    upd[INVEST_TS_PATH] = Date.now();
+    await update(ref(db), upd);
+    renderInvestQuoteNote(`${ok}종목 갱신${fail.length ? ` · 실패 ${fail.length}(${[...new Set(fail)].join(', ')})` : ''}${hasOverseas && fx > 0 ? ` · 환율 ${fx.toFixed(1)}` : ''}`);
+  }catch(er){
+    renderInvestQuoteNote('');
+    alert('시세 조회 실패: ' + er.message + '\n(웹앱 주소·배포 권한 "모든 사용자"를 확인해주세요)');
+  }finally{
+    btn.disabled = false;
+  }
+};
 
 window.toggleInvestEdit = () => {
   investEditMode = !investEditMode;
@@ -2008,8 +2076,13 @@ function renderInvest(){
           <div><span class="k">매입평단액</span><input class="i-avg" type="text" inputmode="decimal" value="${avg}"></div>
           <div><span class="k">현재가</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
         </div>
+        <input class="i-ticker" type="text" placeholder="종목코드 (예: KRX:005930, NASDAQ:AAPL)" value="${escapeHtml(e.ticker || '')}">
         <select class="i-owner">${[...ownerKeys].map(o => `<option value="${escapeHtml(o)}"${o === investOwnerOf(e) ? ' selected' : ''}>소유자: ${escapeHtml(o)}</option>`).join('')}</select>
       `;
+      row.querySelector('.i-ticker').onblur = (ev) => {
+        const v = ev.target.value.trim();
+        if(v !== (e.ticker || '')) update(ref(db, path), { ticker: v }).catch(er => alert('수정 실패: ' + er.message));
+      };
       row.querySelector('.i-owner').onchange = (ev) => update(ref(db, path), { owner: ev.target.value }).catch(er => alert('수정 실패: ' + er.message));
       row.querySelector('.invest-name-input').onblur = (ev) => {
         const v = ev.target.value.trim();
@@ -2024,13 +2097,13 @@ function renderInvest(){
     } else {
       row.innerHTML = `
         <div class="invest-top">
-          <span class="invest-name">${escapeHtml(e.name || '')}<span class="invest-owner-tag">${escapeHtml(investOwnerOf(e))}</span></span>
+          <span class="invest-name">${escapeHtml(e.name || '')}<span class="invest-owner-tag">${escapeHtml(investOwnerOf(e))}</span>${e.ticker ? `<span class="invest-ticker-tag">${escapeHtml(e.ticker)}</span>` : ''}</span>
           <span class="invest-change ${cls}">${arrow} ${Math.abs(rate).toFixed(1)}%</span>
         </div>
         <div class="invest-grid">
           <div><span class="k">구입주수</span><span class="v">${investQty(shares)}주</span></div>
           <div><span class="k">매입평단액</span><span class="v">${investMoney(sec, avg)}</span></div>
-          <div><span class="k">현재가 (직접 수정)</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
+          <div><span class="k">현재가</span><input class="i-price" type="text" inputmode="decimal" value="${price}"></div>
         </div>
         <div class="invest-detail ${cls}">등락폭 ${investSigned(sec, diff)}/주 · 평가손익 ${investSigned(sec, evalPl)} · 평가금액 ${investMoney(sec, price * shares)}</div>
       `;

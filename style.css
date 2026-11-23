@@ -439,3 +439,5 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .invest-all-note{ font-size:11px; color:var(--sub); margin-top:4px; }
 
 .invest-link-note{ font-size:11.5px; color:var(--sub); font-weight:600; margin-top:3px; }
+.item-row.has-invest{ background:#EEF3FB; box-shadow:inset 3px 0 0 #3F6FB5; border-radius:8px; }
+.item-row.has-invest .invest-link-note{ color:#3F6FB5; }

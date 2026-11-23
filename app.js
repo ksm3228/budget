@@ -1440,6 +1440,7 @@ function buildItemRow(item){
         note.className = 'invest-link-note';
         note.textContent = investKeys.length > 1 ? `[${investKey}] ${noteTxt}` : noteTxt;
         main.appendChild(note);
+        row.classList.add('has-invest');
       }
     });
   }

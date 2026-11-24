@@ -2418,7 +2418,10 @@ window.addMemoName = () => {
   const orders = Object.values(memoNotes).map(n => Number(n.order) || 0);
   const order = (orders.length ? Math.min(...orders) : 1) - 1;
   input.value = '';
-  set(push(ref(db, MEMO_PATH)), { name, order, ts: Date.now() }).catch(er => alert('저장 실패: ' + er.message));
+  const newRef = push(ref(db, MEMO_PATH));
+  memoAddOpen[newRef.key] = true;
+  memoFocusAddId = newRef.key;
+  set(newRef, { name, order, ts: Date.now() }).catch(er => { delete memoAddOpen[newRef.key]; alert('저장 실패: ' + er.message); });
 };
 
 window.moveMemoName = (id, dir) => {

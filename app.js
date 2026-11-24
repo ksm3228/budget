@@ -399,6 +399,13 @@ function renderMonthlyBreakdown(itemsByMonth, listElId, idPrefix, emptyMsg){
   }).join('');
 }
 
+window.toggleBreakdown = (titleId, listId) => {
+  const t = document.getElementById(titleId), l = document.getElementById(listId);
+  const open = l.style.display === 'none';
+  l.style.display = open ? 'block' : 'none';
+  t.classList.toggle('open', open);
+};
+
 function renderDonationBreakdown(){
   renderMonthlyBreakdown(donationItemsByMonth, 'donation-breakdown', 'donation', '후원 내역이 없어요.');
 }
@@ -417,7 +424,7 @@ async function renderDonationDashboard(){
     document.getElementById('donation-breakdown').innerHTML = '<div class="donation-breakdown-empty">변동지출 탭에 카테고리명에 "후원"이 들어간 데이터가 없어요.</div>';
     document.getElementById('donation-yearly').innerHTML = '';
   } else {
-    document.getElementById('donation-breakdown-title').style.display = 'block';
+    document.getElementById('donation-breakdown-title').style.display = 'flex';
     renderDonationBreakdown();
     renderYearlyBoxes('donation-yearly', computeYearlyTotals(results));
   }
@@ -436,7 +443,7 @@ async function renderCoffeeDashboard(){
     document.getElementById('coffee-yearly').innerHTML = '';
     return;
   }
-  document.getElementById('coffee-breakdown-title').style.display = 'block';
+  document.getElementById('coffee-breakdown-title').style.display = 'flex';
   renderCoffeeBreakdown();
   renderYearlyBoxes('coffee-yearly', computeYearlyTotals(results));
 }

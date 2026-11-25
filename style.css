@@ -452,3 +452,5 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .breakdown-toggle{ cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px; }
 .breakdown-toggle::before{ content:'▸'; font-size:12px; color:var(--sub); transition:transform .15s; }
 .breakdown-toggle.open::before{ transform:rotate(90deg); }
+#invest-view .invest-up{ color:#D14B4B !important; }
+#invest-view .invest-down{ color:#3F6FB5 !important; }

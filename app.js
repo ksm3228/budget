@@ -330,6 +330,7 @@ async function renderDashboard(){
 
 let donationItemsByMonth = {};
 let coffeeItemsByMonth = {};
+let lectureItemsByMonth = {};
 
 async function getCategoryItemStats(matchFn){
   const snap = await get(ref(db, ROOT));
@@ -467,18 +468,10 @@ function renderYearlyBoxes(containerId, yearlyData){
 }
 
 async function getLectureFeeStats(){
-  const snap = await get(ref(db, ROOT));
-  const allMonths = snap.exists() ? snap.val() : {};
-  const months = Object.keys(allMonths).sort();
-  const results = months.map(ym => {
-    const data = allMonths[ym] || {};
-    let total = 0;
-    Object.values(data).forEach(it => {
-      if(it.type === 'income' && (it.name||'').includes('강의비')) total += Number(it.amount)||0;
-    });
-    return { ym, total };
-  });
-  const total = results.reduce((s,r) => s+r.total, 0);
+  const { results, total, itemsByMonth } = await getCategoryItemStats(
+    it => it.type === 'income' && (it.name||'').includes('강의비')
+  );
+  lectureItemsByMonth = itemsByMonth;
   return { results, total };
 }
 
@@ -487,10 +480,14 @@ async function renderLectureFeeDashboard(){
   const latestTag = document.getElementById('lecture-latest');
   if(results.length === 0 || results.every(r => r.total === 0)){
     document.getElementById('lecture-yearly').innerHTML = '';
+    document.getElementById('lecture-breakdown-title').style.display = 'none';
+    document.getElementById('lecture-breakdown').style.display = 'none';
     if(latestTag) latestTag.textContent = '';
     return;
   }
   renderYearlyBoxes('lecture-yearly', computeYearlyTotals(results));
+  document.getElementById('lecture-breakdown-title').style.display = 'flex';
+  renderMonthlyBreakdown(lectureItemsByMonth, 'lecture-breakdown', 'lecture', '강의비 내역이 없어요.');
 
   const withData = results.filter(r => r.total > 0);
   const latest = withData[withData.length - 1];

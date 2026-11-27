@@ -410,7 +410,7 @@ function renderCardByCard(months, byCard, discounts = {}){
     .sort((x, y) => y.tot - x.tot);
   if(!names.length){ el.innerHTML = ''; return; }
   const dMonths = Object.keys(discounts).sort();
-  const uploadHtml = `<div class="card-discount-box"><div class="card-discount-head"><b>삼성카드 할인금액 등록</b><label class="card-discount-btn">📷 캡처 올리기<input type="file" accept="image/*" multiple style="display:none" onchange="uploadCardDiscount(this)"></label></div><div class="n" id="card-discount-note">삼성카드 앱 \"아낀금액\" 화면 캡처를 올리면 월과 금액을 읽어 삼성카드 그래프에 할인율로 표시해요.</div>${dMonths.length ? '<div class="card-discount-list">' + dMonths.map(m => `<span>${m.slice(2).replace('-', '.')} ${Number(discounts[m]).toLocaleString('ko-KR')}원 <button onclick="deleteCardDiscount('${m}')">✕</button></span>`).join('') + '</div>' : ''}</div>`;
+  const uploadHtml = `<div class="card-discount-box"><div class="card-discount-head"><b>삼성카드 할인금액 등록</b><label class="card-discount-btn">📷 캡처 올리기<input type="file" accept="image/*" multiple style="display:none" onchange="uploadCardDiscount(this)"></label></div><div class="n" id="card-discount-note">삼성카드 앱 \"아낀금액\" 화면 캡처를 올리면 월과 금액을 읽어요. 캡처의 N월(이용월) 할인금액은 가계부 N+1월 막대에 할인율로 표시돼요.</div>${dMonths.length ? '<div class="card-discount-list">' + dMonths.map(m => `<span>${m.slice(2).replace('-', '.')} ${Number(discounts[m]).toLocaleString('ko-KR')}원 <button onclick="deleteCardDiscount('${m}')">✕</button></span>`).join('') + '</div>' : ''}</div>`;
   const barW = 30, gap = 12, chartH = 130;
   // 모든 카드가 같은 눈금(금액 대비 높이 동일)을 쓰도록 전체 최대값 기준
   const globalMax = Math.max(1, ...names.flatMap(({ n }) => months.map(ym => byCard[n][ym] || 0)));
@@ -435,12 +435,15 @@ function renderCardByCard(months, byCard, discounts = {}){
     if(n.includes('삼성카드') && dMonths.length){
       svgH = chartH + 16;
       vals.forEach((v, i) => {
-        const d = Number(discounts[v.ym]) || 0;
+        // 가계부 N월 금액 = (N-1)월 사용분 → 캡처의 (N-1)월 할인금액과 짝지음
+        const [yy, mm] = v.ym.split('-').map(Number);
+        const prevYm = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, '0')}`;
+        const d = Number(discounts[prevYm]) || 0;
         const x = gap + i * (barW + gap) + barW / 2;
         if(d > 0 && v.total > 0) rateRow += `<text x="${x}" y="${chartH + 11}" font-size="10" font-weight="700" text-anchor="middle" fill="#C4622D">${(d / v.total * 100).toFixed(1)}%</text>`;
       });
     }
-    const rateNote = (n.includes('삼성카드') && dMonths.length) ? '<div class="n" style="padding:0 6px 4px;font-size:11px;color:#C4622D;">아래 주황색 숫자 = 할인율(할인금액 ÷ 그 달 사용액)</div>' : '';
+    const rateNote = (n.includes('삼성카드') && dMonths.length) ? '<div class="n" style="padding:0 6px 4px;font-size:11px;color:#C4622D;">아래 주황색 숫자 = 할인율 (전월 사용분 할인금액 ÷ 그 달 카드 금액)</div>' : '';
     return `<div class="dash-card-sub">
       <div class="dash-card-sub-head"><b>${escapeHtml(n)}</b><span>평균 ${won(avg)}${last ? ` · 최근 ${won(last.total)}` : ''}</span></div>
       ${rateNote}<div class="dash-chart-wrap dash-card-chart"><svg viewBox="0 0 ${svgW} ${svgH}" width="${Math.max(svgW, 300)}" height="${svgH}" style="display:block;">${bars}${rateRow}</svg></div>

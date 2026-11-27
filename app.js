@@ -347,9 +347,11 @@ function renderCardByCard(months, byCard){
     .sort((x, y) => y.tot - x.tot);
   if(!names.length){ el.innerHTML = ''; return; }
   const barW = 30, gap = 12, chartH = 130;
+  // 모든 카드가 같은 눈금(금액 대비 높이 동일)을 쓰도록 전체 최대값 기준
+  const globalMax = Math.max(1, ...names.flatMap(({ n }) => months.map(ym => byCard[n][ym] || 0)));
   el.innerHTML = '<div class="dash-title" style="margin-top:20px; border-top:1px solid var(--line); padding-top:16px;">카드별 월별 사용액 추이</div>' + names.map(({ n }) => {
     const vals = months.map(ym => ({ ym, total: byCard[n][ym] || 0 }));
-    const max = Math.max(...vals.map(v => v.total), 1);
+    const max = globalMax;
     const nz = vals.filter(v => v.total > 0);
     const avg = nz.length ? Math.round(nz.reduce((s, v) => s + v.total, 0) / nz.length) : 0;
     const last = nz.length ? nz[nz.length - 1] : null;

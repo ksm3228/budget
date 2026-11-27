@@ -335,21 +335,79 @@ async function renderDashboard(){
     <div class="dash-stat"><div class="t">평균 (데이터 있는 달)</div><div class="v">${won(avg)}</div></div>
     <div class="dash-stat"><div class="t">전월 대비</div><div class="v">${trendText}</div></div>
   `;
-  renderCardByCard(results.map(r => r.ym), byCard);
+  let discounts = {};
+  try{ const ds = await get(ref(db, CARD_DISCOUNT_PATH)); discounts = ds.exists() ? ds.val() : {}; }catch(e){}
+  renderCardByCard(results.map(r => r.ym), byCard, discounts);
 }
 
+const CARD_DISCOUNT_PATH = 'budget_app/cardDiscounts';
+
+// 삼성카드 할인금액(혜택) 캡처 → 월·금액 추출 후 등록
+async function extractCardDiscountFromImage(file, apiKey){
+  const { data, mediaType } = await investImageToBase64(file);
+  const prompt = '이 이미지는 삼성카드 앱의 "아낀금액/혜택" 화면 캡처입니다. 상단에 보이는 연월(예: 2026년 9월)과 "아낀금액 합계"(또는 혜택 합계) 금액을 읽어 JSON으로만 응답하세요. 혜택별 금액 목록이 아니라 합계 숫자를 쓰세요. 형식: {"month":"YYYY-MM","discount":숫자(원, 쉼표 없이)}. 연월이 안 보이면 month는 null.';
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 300, messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+      { type: 'text', text: prompt }
+    ]}]})
+  });
+  const body = await res.json();
+  if(body.error) throw new Error(body.error.message || 'API 오류');
+  const txt = ((body.content || []).find(c => c.type === 'text') || {}).text || '';
+  const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
+  if(s < 0 || e < s) throw new Error('금액을 읽지 못했어요');
+  return JSON.parse(txt.slice(s, e + 1));
+}
+
+window.uploadCardDiscount = async (input) => {
+  const files = [...(input.files || [])];
+  input.value = '';
+  if(!files.length) return;
+  let apiKey = (localStorage.getItem('anthropic_api_key') || '').trim();
+  if(!apiKey){
+    apiKey = (prompt('Anthropic API 키를 입력해주세요 (사진 인식에 사용, 이 기기에만 저장돼요)') || '').trim();
+    if(!apiKey) return;
+    localStorage.setItem('anthropic_api_key', apiKey);
+  }
+  const note = document.getElementById('card-discount-note');
+  for(const f of files){
+    try{
+      note.textContent = '캡처 읽는 중…';
+      const r = await extractCardDiscountFromImage(f, apiKey);
+      const ym = /^\d{4}-\d{2}$/.test(String(r.month || '')) ? r.month : (prompt('연월을 읽지 못했어요. YYYY-MM 형식으로 입력해주세요 (예: 2026-09)') || '').trim();
+      const amt = Math.round(Number(String(r.discount).replace(/[^0-9.]/g, '')) || 0);
+      if(!/^\d{4}-\d{2}$/.test(ym) || amt <= 0){ alert('연월 또는 금액을 확인하지 못했어요.'); continue; }
+      if(!confirm(`${ym} 삼성카드 할인금액 ${amt.toLocaleString('ko-KR')}원으로 등록할까요?`)) continue;
+      await set(ref(db, `${CARD_DISCOUNT_PATH}/${ym}`), amt);
+    }catch(er){ alert('등록 실패: ' + er.message); }
+  }
+  note.textContent = '';
+  await renderDashboard();
+};
+
+window.deleteCardDiscount = async (ym) => {
+  if(!confirm(`${ym} 할인금액 기록을 삭제할까요?`)) return;
+  await remove(ref(db, `${CARD_DISCOUNT_PATH}/${ym}`)).catch(er => alert('삭제 실패: ' + er.message));
+  await renderDashboard();
+};
+
 // 카드별(항목 이름별) 월별 사용액 추이
-function renderCardByCard(months, byCard){
+function renderCardByCard(months, byCard, discounts = {}){
   const el = document.getElementById('dash-cards');
   const names = Object.keys(byCard)
     .map(n => ({ n, tot: Object.values(byCard[n]).reduce((s, v) => s + v, 0) }))
     .filter(x => x.tot > 0 && !x.n.includes('통합'))
     .sort((x, y) => y.tot - x.tot);
   if(!names.length){ el.innerHTML = ''; return; }
+  const dMonths = Object.keys(discounts).sort();
+  const uploadHtml = `<div class="card-discount-box"><div class="card-discount-head"><b>삼성카드 할인금액 등록</b><label class="card-discount-btn">📷 캡처 올리기<input type="file" accept="image/*" multiple style="display:none" onchange="uploadCardDiscount(this)"></label></div><div class="n" id="card-discount-note">삼성카드 앱 \"아낀금액\" 화면 캡처를 올리면 월과 금액을 읽어 삼성카드 그래프에 할인율로 표시해요.</div>${dMonths.length ? '<div class="card-discount-list">' + dMonths.map(m => `<span>${m.slice(2).replace('-', '.')} ${Number(discounts[m]).toLocaleString('ko-KR')}원 <button onclick="deleteCardDiscount('${m}')">✕</button></span>`).join('') + '</div>' : ''}</div>`;
   const barW = 30, gap = 12, chartH = 130;
   // 모든 카드가 같은 눈금(금액 대비 높이 동일)을 쓰도록 전체 최대값 기준
   const globalMax = Math.max(1, ...names.flatMap(({ n }) => months.map(ym => byCard[n][ym] || 0)));
-  el.innerHTML = '<div class="dash-title" style="margin-top:20px; border-top:1px solid var(--line); padding-top:16px;">카드별 월별 사용액 추이</div>' + names.map(({ n }) => {
+  el.innerHTML = '<div class="dash-title" style="margin-top:20px; border-top:1px solid var(--line); padding-top:16px;">카드별 월별 사용액 추이</div>' + uploadHtml + names.map(({ n }) => {
     const vals = months.map(ym => ({ ym, total: byCard[n][ym] || 0 }));
     const max = globalMax;
     const nz = vals.filter(v => v.total > 0);
@@ -365,9 +423,20 @@ function renderCardByCard(months, byCard){
         <text x="${x + barW / 2}" y="${y - 5}" font-size="9.5" text-anchor="middle" fill="#2B2A28">${v.total ? Math.round(v.total / 10000).toLocaleString('ko-KR') + '만' : '-'}</text>
         <text x="${x + barW / 2}" y="${chartH - 6}" font-size="9.5" text-anchor="middle" fill="#8A8680">${v.ym.slice(2).replace('-', '.')}</text>`;
     });
+    // 삼성카드: 월별 할인율(할인금액 ÷ 그 달 사용액) 표시
+    let rateRow = '', svgH = chartH;
+    if(n.includes('삼성카드') && dMonths.length){
+      svgH = chartH + 16;
+      vals.forEach((v, i) => {
+        const d = Number(discounts[v.ym]) || 0;
+        const x = gap + i * (barW + gap) + barW / 2;
+        if(d > 0 && v.total > 0) rateRow += `<text x="${x}" y="${chartH + 11}" font-size="10" font-weight="700" text-anchor="middle" fill="#C4622D">${(d / v.total * 100).toFixed(1)}%</text>`;
+      });
+    }
+    const rateNote = (n.includes('삼성카드') && dMonths.length) ? '<div class="n" style="padding:0 6px 4px;font-size:11px;color:#C4622D;">아래 주황색 숫자 = 할인율(할인금액 ÷ 그 달 사용액)</div>' : '';
     return `<div class="dash-card-sub">
       <div class="dash-card-sub-head"><b>${escapeHtml(n)}</b><span>평균 ${won(avg)}${last ? ` · 최근 ${won(last.total)}` : ''}</span></div>
-      <div class="dash-chart-wrap dash-card-chart"><svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 300)}" height="${chartH}" style="display:block;">${bars}</svg></div>
+      ${rateNote}<div class="dash-chart-wrap dash-card-chart"><svg viewBox="0 0 ${svgW} ${svgH}" width="${Math.max(svgW, 300)}" height="${svgH}" style="display:block;">${bars}${rateRow}</svg></div>
     </div>`;
   }).join('');
   requestAnimationFrame(() => el.querySelectorAll('.dash-card-chart').forEach(c => { c.scrollLeft = c.scrollWidth; }));

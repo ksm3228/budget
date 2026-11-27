@@ -409,7 +409,7 @@ async function getDonationStats(){
 
 async function getCoffeeStats(){
   const { results, total, itemsByMonth } = await getCategoryItemStats(
-    it => (it.category||'') === '커피' && it.type === 'variable'
+    it => (it.category||'').includes('커피') && it.type === 'variable'
   );
   coffeeItemsByMonth = itemsByMonth;
   return { results, total };
@@ -485,7 +485,7 @@ async function renderCoffeeDashboard(){
 
   if(results.length === 0){
     document.getElementById('coffee-breakdown-title').style.display = 'none';
-    document.getElementById('coffee-breakdown').innerHTML = '<div class="donation-breakdown-empty">변동지출 탭에 카테고리명이 정확히 "커피"인 항목이 없어요.</div>';
+    document.getElementById('coffee-breakdown').innerHTML = '<div class="donation-breakdown-empty">변동지출 탭에 카테고리명에 "커피"가 들어간 항목이 없어요.</div>';
     document.getElementById('coffee-yearly').innerHTML = '';
     return;
   }

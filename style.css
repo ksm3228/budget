@@ -457,3 +457,13 @@ header.top h1{ font-size:20px; margin:0; letter-spacing:-0.3px; }
 .dash-card-sub{ margin-top:12px; background:#FAFAF7; border-radius:12px; padding:10px 8px 6px; }
 .dash-card-sub-head{ display:flex; justify-content:space-between; align-items:baseline; padding:0 6px 4px; font-size:13px; }
 .dash-card-sub-head span{ font-size:11.5px; color:var(--sub); font-weight:600; }
+.defer-scn{ margin-top:6px; font-size:12.5px; }
+.defer-scn summary{ cursor:pointer; font-weight:800; color:var(--accent); padding:4px 0; }
+.defer-rate{ display:flex; align-items:center; gap:6px; margin:4px 0 8px; color:var(--sub); font-size:12px; }
+.defer-rate input{ width:64px; border:1px solid var(--line); border-radius:8px; padding:5px 7px; font-size:16px; font-family:inherit; }
+.defer-table{ width:100%; border-collapse:collapse; font-size:12px; }
+.defer-table th{ color:var(--sub); font-weight:700; text-align:right; padding:4px 3px; border-bottom:1px solid var(--line); }
+.defer-table td{ text-align:right; padding:5px 3px; border-bottom:1px solid #F1EFE9; }
+.defer-table th:first-child, .defer-table td:first-child{ text-align:left; font-weight:800; }
+.defer-table tr.base td{ color:var(--sub); }
+.defer-note{ font-size:11px; color:var(--sub); line-height:1.4; margin-top:6px; }

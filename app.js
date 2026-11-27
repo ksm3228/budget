@@ -1454,6 +1454,50 @@ function buildItemRow(item){
     };
   }
 
+  // 평생연금(국민연금·사학연금) 연기연금 수령 시나리오
+  if(item.type === 'expected' && item.category === '평생연금' && /국민연금|사학연금/.test(item.name || '')){
+    const isNps = (item.name || '').includes('국민연금');
+    const defRate = isNps ? 7.2 : 6;
+    const ratePct = Number(item.deferRatePct) > 0 ? Number(item.deferRatePct) : defRate;
+    const base = Number(item.amount) || 0;
+    const det = document.createElement('details');
+    det.className = 'defer-scn';
+    det.open = !!pensionScenarioOpen[item.id];
+    det.addEventListener('toggle', () => { pensionScenarioOpen[item.id] = det.open; });
+    const sum = document.createElement('summary');
+    sum.textContent = '📈 연기연금 수령 시나리오';
+    det.appendChild(sum);
+    const rateRow = document.createElement('div');
+    rateRow.className = 'defer-rate';
+    rateRow.innerHTML = '<span>연기 시 연 증액률</span>';
+    const rIn = document.createElement('input');
+    rIn.type = 'number'; rIn.step = '0.1'; rIn.value = ratePct;
+    rIn.onblur = () => { const v = Number(rIn.value) || 0; if(v > 0 && v !== ratePct) updateField(item.id, 'deferRatePct', v); };
+    rateRow.appendChild(rIn);
+    const pct = document.createElement('span');
+    pct.textContent = '%' + (item.deferRatePct ? '' : (isNps ? ' (국민연금 월 0.6%)' : ' (사학연금: 공단 기준 확인 후 수정)'));
+    rateRow.appendChild(pct);
+    det.appendChild(rateRow);
+    if(base <= 0){
+      const em = document.createElement('div');
+      em.className = 'defer-note';
+      em.textContent = '위 금액칸에 정상 수령 시 월 예상 수령액을 입력하면 시나리오가 계산돼요.';
+      det.appendChild(em);
+    } else {
+      let html = '<table class="defer-table"><tr><th>연기</th><th>월 수령액</th><th>월 증가</th><th>손익분기*</th></tr>';
+      for(let n = 0; n <= 5; n++){
+        const m = Math.round(base * (1 + ratePct / 100 * n));
+        const be = n === 0 ? '-' : `정상 개시 후 ${((1 + ratePct / 100 * n) / (ratePct / 100)).toFixed(1)}년`;
+        html += `<tr${n === 0 ? ' class="base"' : ''}><td>${n === 0 ? '정상' : n + '년'}</td><td>${won(m)}</td><td>${n === 0 ? '-' : '+' + won(m - base)}</td><td>${be}</td></tr>`;
+      }
+      html += '</table><div class="defer-note">* 연기 없이 정상 개시했을 때의 누적 수령액을 넘기 시작하는 시점이에요. 물가상승·세금·건강보험료는 반영하지 않은 단순 계산이고, 증액률·최대 연기기간(5년)은 제도 변경에 따라 달라질 수 있으니 공단에서 확인하세요.</div>';
+      const box = document.createElement('div');
+      box.innerHTML = html;
+      det.appendChild(box);
+    }
+    main.appendChild(det);
+  }
+
   if(item.type === 'asset' && Number(item.amount) < 0){
     const hasRate = !!item.interestRate;
     const rateToggle = document.createElement('button');
@@ -1808,6 +1852,7 @@ function investHoldingValue(sec, owner){
     .reduce((t, e) => t + (Number(e.shares) || 0) * (Number(e.price) || 0) * mul, 0);
 }
 const pensionSyncGuard = {};
+const pensionScenarioOpen = {};
 function investAssetNote(sec, owner){
   const arr = Object.values(investData[sec] || {}).filter(e => !owner || investOwnerOf(e) === owner);
   if(!arr.length) return '';

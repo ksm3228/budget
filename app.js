@@ -212,18 +212,24 @@ async function getCardStats(){
   const snap = await get(ref(db, ROOT));
   const allMonths = snap.exists() ? snap.val() : {};
   const months = Object.keys(allMonths).sort();
+  const byCard = {};
   const results = months.map(ym => {
     const data = allMonths[ym] || {};
     let total = 0;
     Object.values(data).forEach(it => {
-      if(it.category === '카드비' && it.type === 'variable') total += Number(it.amount)||0;
+      if(it.category === '카드비' && it.type === 'variable'){
+        const amt = Number(it.amount)||0;
+        total += amt;
+        const nm = String(it.name || '').trim() || '(이름 없음)';
+        (byCard[nm] = byCard[nm] || {})[ym] = ((byCard[nm][ym]) || 0) + amt;
+      }
     });
     return { ym, total };
   });
   const withData = results.filter(r => r.total > 0);
   const avg = withData.length ? Math.round(withData.reduce((s,r) => s+r.total, 0) / withData.length) : 0;
   const max = Math.max(...results.map(r => r.total), 1);
-  return { results, avg, max };
+  return { results, avg, max, byCard };
 }
 
 async function refreshDashButtonLabel(){
@@ -284,7 +290,9 @@ async function renderDashboard(){
   chartEl.innerHTML = '<div class="dash-loading">불러오는 중...</div>';
   statsEl.innerHTML = '';
 
-  const { results, avg, max } = await getCardStats();
+  const { results, avg, max, byCard } = await getCardStats();
+  const cardsEl = document.getElementById('dash-cards');
+  cardsEl.innerHTML = '';
 
   if(results.length === 0){
     chartEl.innerHTML = '<div class="dash-loading">"카드비" 카테고리(변동지출) 데이터가 없어요. 카테고리명이 정확히 "카드비"여야 집계돼요.</div>';
@@ -326,6 +334,40 @@ async function renderDashboard(){
     <div class="dash-stat"><div class="t">평균 (데이터 있는 달)</div><div class="v">${won(avg)}</div></div>
     <div class="dash-stat"><div class="t">전월 대비</div><div class="v">${trendText}</div></div>
   `;
+  renderCardByCard(results.map(r => r.ym), byCard);
+}
+
+// 카드별(항목 이름별) 월별 사용액 추이
+function renderCardByCard(months, byCard){
+  const el = document.getElementById('dash-cards');
+  const names = Object.keys(byCard)
+    .map(n => ({ n, tot: Object.values(byCard[n]).reduce((s, v) => s + v, 0) }))
+    .filter(x => x.tot > 0)
+    .sort((x, y) => y.tot - x.tot);
+  if(!names.length){ el.innerHTML = ''; return; }
+  const barW = 30, gap = 12, chartH = 130;
+  el.innerHTML = '<div class="dash-title" style="margin-top:20px; border-top:1px solid var(--line); padding-top:16px;">카드별 월별 사용액 추이</div>' + names.map(({ n }) => {
+    const vals = months.map(ym => ({ ym, total: byCard[n][ym] || 0 }));
+    const max = Math.max(...vals.map(v => v.total), 1);
+    const nz = vals.filter(v => v.total > 0);
+    const avg = nz.length ? Math.round(nz.reduce((s, v) => s + v.total, 0) / nz.length) : 0;
+    const last = nz.length ? nz[nz.length - 1] : null;
+    const svgW = vals.length * (barW + gap) + gap;
+    let bars = '';
+    vals.forEach((v, i) => {
+      const x = gap + i * (barW + gap);
+      const h = Math.round((v.total / max) * (chartH - 36));
+      const y = chartH - h - 22;
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h, 2)}" rx="5" fill="${v.total > 0 ? '#5B7FA6' : '#E7E4DD'}"></rect>
+        <text x="${x + barW / 2}" y="${y - 5}" font-size="9.5" text-anchor="middle" fill="#2B2A28">${v.total ? Math.round(v.total / 10000).toLocaleString('ko-KR') + '만' : '-'}</text>
+        <text x="${x + barW / 2}" y="${chartH - 6}" font-size="9.5" text-anchor="middle" fill="#8A8680">${v.ym.slice(2).replace('-', '.')}</text>`;
+    });
+    return `<div class="dash-card-sub">
+      <div class="dash-card-sub-head"><b>${escapeHtml(n)}</b><span>평균 ${won(avg)}${last ? ` · 최근 ${won(last.total)}` : ''}</span></div>
+      <div class="dash-chart-wrap dash-card-chart"><svg viewBox="0 0 ${svgW} ${chartH}" width="${Math.max(svgW, 300)}" height="${chartH}" style="display:block;">${bars}</svg></div>
+    </div>`;
+  }).join('');
+  requestAnimationFrame(() => el.querySelectorAll('.dash-card-chart').forEach(c => { c.scrollLeft = c.scrollWidth; }));
 }
 
 let donationItemsByMonth = {};

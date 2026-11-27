@@ -368,7 +368,7 @@ window.uploadCardDiscount = async (input) => {
   if(!files.length) return;
   let apiKey = (localStorage.getItem('anthropic_api_key') || '').trim();
   if(!apiKey){
-    apiKey = (prompt('Anthropic API 키를 입력해주세요 (사진 인식에 사용, 이 기기에만 저장돼요)') || '').trim();
+    apiKey = (prompt('Anthropic API 키를 입력해주세요 (sk-ant-로 시작, 사진 인식에 사용, 이 기기에만 저장돼요)') || '').replace(/\s+/g, '');
     if(!apiKey) return;
     localStorage.setItem('anthropic_api_key', apiKey);
   }
@@ -382,7 +382,14 @@ window.uploadCardDiscount = async (input) => {
       if(!/^\d{4}-\d{2}$/.test(ym) || amt <= 0){ alert('연월 또는 금액을 확인하지 못했어요.'); continue; }
       if(!confirm(`${ym} 삼성카드 할인금액 ${amt.toLocaleString('ko-KR')}원으로 등록할까요?`)) continue;
       await set(ref(db, `${CARD_DISCOUNT_PATH}/${ym}`), amt);
-    }catch(er){ alert('등록 실패: ' + er.message); }
+    }catch(er){
+      if(/x-api-key|api key|authentication/i.test(er.message)){
+        localStorage.removeItem('anthropic_api_key');
+        alert('API 키가 올바르지 않아요. 저장된 키를 지웠으니, 캡처를 다시 올릴 때 올바른 키(sk-ant-로 시작)를 입력해주세요.');
+        break;
+      }
+      alert('등록 실패: ' + er.message);
+    }
   }
   note.textContent = '';
   await renderDashboard();

@@ -300,7 +300,7 @@ async function renderDashboard(){
     return;
   }
 
-  const barW = 46, gap = 18, chartH = 190;
+  const barW = 30, gap = 12, chartH = 190;
   const svgW = results.length * (barW+gap) + gap;
   let bars = '';
   results.forEach((r, i) => {

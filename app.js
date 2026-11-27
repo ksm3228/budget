@@ -343,7 +343,7 @@ function renderCardByCard(months, byCard){
   const el = document.getElementById('dash-cards');
   const names = Object.keys(byCard)
     .map(n => ({ n, tot: Object.values(byCard[n]).reduce((s, v) => s + v, 0) }))
-    .filter(x => x.tot > 0)
+    .filter(x => x.tot > 0 && !x.n.includes('통합'))
     .sort((x, y) => y.tot - x.tot);
   if(!names.length){ el.innerHTML = ''; return; }
   const barW = 30, gap = 12, chartH = 130;

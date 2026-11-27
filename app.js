@@ -220,7 +220,8 @@ async function getCardStats(){
       if(it.category === '카드비' && it.type === 'variable'){
         const amt = Number(it.amount)||0;
         total += amt;
-        const nm = String(it.name || '').trim() || '(이름 없음)';
+        let nm = String(it.name || '').trim() || '(이름 없음)';
+        if(nm.includes('현대카드')) nm = 'naver 현대카드';
         (byCard[nm] = byCard[nm] || {})[ym] = ((byCard[nm][ym]) || 0) + amt;
       }
     });
